@@ -1,0 +1,185 @@
+import { Client, type ClientChannel, type SFTPWrapper, type ConnectConfig } from 'ssh2'
+import { EventEmitter } from 'node:events'
+import { readFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import type { SessionProfile } from '../../shared/types'
+import { _getEntrySecret } from '../store/vault'
+
+export interface SshAuthOverride {
+  password?: string
+  privateKeyPassphrase?: string
+}
+
+interface ActiveSession {
+  id: string
+  sessionId: string
+  client: Client
+  shell?: ClientChannel
+  sftp?: SFTPWrapper
+  events: EventEmitter
+  ready: boolean
+}
+
+const sessions = new Map<string, ActiveSession>()
+
+function buildConnectConfig(profile: SessionProfile, override?: SshAuthOverride): ConnectConfig {
+  const cfg: ConnectConfig = {
+    host: profile.host,
+    port: profile.port || 22,
+    username: profile.username,
+    keepaliveInterval: 20000,
+    readyTimeout: 25000
+  }
+
+  if (profile.authType === 'password') {
+    let pw = override?.password
+    if (!pw && profile.credentialId) {
+      const e = _getEntrySecret(profile.credentialId)
+      if (e && e.secretType === 'password') pw = e.value
+    }
+    if (!pw) throw new Error('Password not provided (vault locked or missing)')
+    cfg.password = pw
+    return cfg
+  }
+
+  if (profile.authType === 'privateKey') {
+    if (!profile.privateKeyPath) throw new Error('Private key path not set')
+    const keyData = readFileSync(profile.privateKeyPath)
+    cfg.privateKey = keyData
+    let passphrase = override?.privateKeyPassphrase
+    if (!passphrase && profile.credentialId) {
+      const e = _getEntrySecret(profile.credentialId)
+      if (e && e.secretType === 'passphrase') passphrase = e.value
+    }
+    if (passphrase) cfg.passphrase = passphrase
+    return cfg
+  }
+
+  if (profile.authType === 'credentialRef') {
+    if (!profile.credentialId) throw new Error('Credential ref not set')
+    const e = _getEntrySecret(profile.credentialId)
+    if (!e) throw new Error('Vault entry not found (vault may be locked)')
+    if (e.secretType === 'password') {
+      cfg.password = e.value
+    } else if (e.secretType === 'privateKey') {
+      cfg.privateKey = e.value
+    } else {
+      throw new Error('Vault entry must be password or privateKey')
+    }
+    return cfg
+  }
+
+  throw new Error('Unsupported authType')
+}
+
+export interface OpenOptions {
+  cols?: number
+  rows?: number
+  override?: SshAuthOverride
+}
+
+export function open(profile: SessionProfile, opts: OpenOptions = {}): { handle: string; events: EventEmitter } {
+  const handle = randomUUID()
+  const events = new EventEmitter()
+  const client = new Client()
+  const session: ActiveSession = { id: handle, sessionId: profile.id, client, events, ready: false }
+  sessions.set(handle, session)
+
+  client.on('ready', () => {
+    session.ready = true
+    client.shell({ term: 'xterm-256color', cols: opts.cols || 80, rows: opts.rows || 24 }, (err, channel) => {
+      if (err) {
+        events.emit('error', err.message)
+        client.end()
+        return
+      }
+      session.shell = channel
+      events.emit('ready')
+      channel.on('data', (chunk: Buffer) => events.emit('data', chunk))
+      channel.stderr.on('data', (chunk: Buffer) => events.emit('data', chunk))
+      channel.on('close', () => events.emit('close'))
+    })
+  })
+
+  client.on('error', (err) => events.emit('error', err.message))
+  client.on('close', () => {
+    sessions.delete(handle)
+    events.emit('close')
+  })
+
+  try {
+    const cfg = buildConnectConfig(profile, opts.override)
+    client.connect(cfg)
+  } catch (e) {
+    sessions.delete(handle)
+    setImmediate(() => events.emit('error', (e as Error).message))
+  }
+
+  return { handle, events }
+}
+
+export function write(handle: string, data: string): void {
+  const s = sessions.get(handle)
+  if (s?.shell) s.shell.write(data)
+}
+
+export function resize(handle: string, cols: number, rows: number): void {
+  const s = sessions.get(handle)
+  if (s?.shell) {
+    try {
+      s.shell.setWindow(rows, cols, 0, 0)
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export function close(handle: string): void {
+  const s = sessions.get(handle)
+  if (!s) return
+  try {
+    s.shell?.end()
+  } catch {
+    /* ignore */
+  }
+  s.client.end()
+  sessions.delete(handle)
+}
+
+export function getClient(handle: string): Client | undefined {
+  return sessions.get(handle)?.client
+}
+
+export async function getSftp(handle: string): Promise<SFTPWrapper> {
+  const s = sessions.get(handle)
+  if (!s) throw new Error('SSH session not found')
+  if (s.sftp) return s.sftp
+  return await new Promise((resolve, reject) => {
+    s.client.sftp((err, sftp) => {
+      if (err) return reject(err)
+      s.sftp = sftp
+      resolve(sftp)
+    })
+  })
+}
+
+export function execCommand(
+  handle: string,
+  cmd: string
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  const s = sessions.get(handle)
+  if (!s) return Promise.reject(new Error('SSH session not found'))
+  return new Promise((resolve, reject) => {
+    s.client.exec(cmd, (err, stream) => {
+      if (err) return reject(err)
+      let stdout = ''
+      let stderr = ''
+      stream.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+      stream.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+      stream.on('close', (code: number) => {
+        resolve({ code: code ?? 0, stdout, stderr })
+      })
+      stream.on('error', reject)
+    })
+  })
+}

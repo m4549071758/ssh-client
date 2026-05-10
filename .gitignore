@@ -1,0 +1,16 @@
+node_modules/
+out/
+release/
+dist/
+*.log
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.tsbuildinfo
+
+# Local data / secrets (should never be in repo)
+*.env
+*.env.local
+hello-check.ps1
+hello-check.cmd

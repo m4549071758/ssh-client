@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; margin: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Yu Gothic UI", sans-serif; overflow: hidden; }
+
+/* ===== Light theme overrides ===== */
+html.light { color-scheme: light; }
+html.light body { color: #1f2330; }
+html.light .bg-bg          { background-color: #ffffff !important; }
+html.light .bg-bg-soft     { background-color: #f4f5f8 !important; }
+html.light .bg-bg-mute     { background-color: #e7e9ef !important; }
+html.light .hover\:bg-bg-mute:hover { background-color: #eef0f5 !important; }
+html.light .text-fg        { color: #1f2330 !important; }
+html.light .text-fg-mute   { color: #5b6371 !important; }
+html.light .hover\:text-fg:hover { color: #1f2330 !important; }
+html.light .border-border  { border-color: #d8dbe3 !important; }
+html.light [class*="border-border"]   { border-color: #d8dbe3 !important; }
+html.light [class*="border-border\\/"] { border-color: rgba(216,219,227,0.6) !important; }
+html.light .text-accent    { color: #2563eb !important; }
+html.light .bg-accent      { background-color: #2563eb !important; color: #fff !important; }
+html.light .hover\:bg-accent-hover:hover { background-color: #1d4ed8 !important; }
+html.light .ring-accent    { --tw-ring-color: #2563eb !important; }
+html.light .border-accent  { border-color: #2563eb !important; }
+html.light .focus\:border-accent:focus { border-color: #2563eb !important; }
+html.light *::-webkit-scrollbar-thumb { background: #c7cbd6 !important; }
+html.light .bg-rose-900\/30, html.light .bg-rose-900\/40 { background-color: #fee2e2 !important; }
+html.light .text-rose-300  { color: #b91c1c !important; }
+
+/* Force readable text on light SFTP table */
+html.light table tr td, html.light table tr th { color: #1f2330; }
+html.light table tr td.text-fg-mute, html.light table tr th.text-fg-mute { color: #5b6371 !important; }
+
+/* xterm overrides */
+.xterm-viewport::-webkit-scrollbar { width: 10px; }
+.xterm-viewport::-webkit-scrollbar-thumb { background: #2a2f3d; border-radius: 4px; }
+
+/* App-wide subtle scrollbar */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: #2a2f3d; border-radius: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* Resizable panels handle */
+[data-panel-resize-handle-enabled] {
+  background: transparent;
+  position: relative;
+}
+[data-panel-resize-handle-enabled]:hover { background: #5b9dff44; }
