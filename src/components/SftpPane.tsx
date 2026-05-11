@@ -59,17 +59,24 @@ export function SftpPane({ handle, theme }: { handle: string; theme?: 'vs' | 'vs
     refresh()
   }, [refresh])
 
+  // M-6: refreshRef を使い onPutBack リスナー登録を handle のみに依存させる
+  // (path が変わるたびに remove → re-add されてイベントを取り逃がす問題を防ぐ)
+  const refreshRef = useRef(refresh)
+  useEffect(() => {
+    refreshRef.current = refresh
+  })
+
   useEffect(() => {
     const off = api.sftp.onPutBack((info) => {
       if (info.ok) {
         setError(null)
-        refresh()
+        refreshRef.current()
       } else {
         setError(`保存反映失敗 (${info.remotePath}): ${info.error ?? 'unknown error'}`)
       }
     })
     return () => { off() }
-  }, [refresh])
+  }, [handle])
 
   // Close context menu on click outside
   useEffect(() => {
@@ -106,8 +113,12 @@ export function SftpPane({ handle, theme }: { handle: string; theme?: 'vs' | 'vs
     }
   }
 
+  // m-2: 末尾スラッシュや root '/' での誤動作を修正
   function up() {
-    const parent = path.replace(/\/[^/]+\/?$/, '') || '/'
+    const cleaned = path.replace(/\/+$/, '') || '/'
+    if (cleaned === '/') return
+    const idx = cleaned.lastIndexOf('/')
+    const parent = idx <= 0 ? '/' : cleaned.slice(0, idx)
     setPath(parent)
   }
 

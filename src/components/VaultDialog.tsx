@@ -105,16 +105,26 @@ export function VaultDialog({ open, onOpenChange, status, entries, onChanged }: 
 
   async function addEntry() {
     if (!label || !secretValue) return
-    await api.vault.upsert({ label, username, secretType, value: secretValue } as Omit<VaultEntry, 'id'>)
-    setLabel('')
-    setUsername('')
-    setSecretValue('')
-    onChanged()
+    // M-5: エラーを握りつぶさず setError にフォールバック
+    try {
+      await api.vault.upsert({ label, username, secretType, value: secretValue } as Omit<VaultEntry, 'id'>)
+      setLabel('')
+      setUsername('')
+      setSecretValue('')
+      onChanged()
+    } catch (e) {
+      setError((e as Error).message)
+    }
   }
 
   async function removeEntry(id: string) {
-    await api.vault.delete(id)
-    onChanged()
+    // M-5: エラーを握りつぶさず setError にフォールバック
+    try {
+      await api.vault.delete(id)
+      onChanged()
+    } catch (e) {
+      setError((e as Error).message)
+    }
   }
 
   const title = !status.hasMasterPassword
@@ -218,7 +228,7 @@ export function VaultDialog({ open, onOpenChange, status, entries, onChanged }: 
               <select
                 className="w-full rounded-md border border-border bg-bg-soft px-2.5 py-1.5 text-sm text-fg outline-none focus:border-accent"
                 value={secretType}
-                onChange={(e) => setSecretType(e.target.value as any)}
+                onChange={(e) => setSecretType(e.target.value as VaultEntry['secretType'])}
               >
                 <option value="password">パスワード</option>
                 <option value="passphrase">秘密鍵パスフレーズ</option>

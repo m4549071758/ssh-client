@@ -81,11 +81,14 @@ export default function App() {
         setTabStatus(tabId, 'ready')
         offReady()
       })
-      api.ssh.onError(handle, (msg) => {
+      // M-4: onError / onClose のリスナーは close 時に解除してリークを防ぐ
+      const offErr = api.ssh.onError(handle, (msg) => {
         setTabStatus(tabId, 'error', msg)
       })
-      api.ssh.onClose(handle, () => {
+      const offClose = api.ssh.onClose(handle, () => {
         setTabStatus(tabId, 'closed')
+        offErr()
+        offClose()
       })
     } catch (e) {
       setTabStatus(tabId, 'error', (e as Error).message)

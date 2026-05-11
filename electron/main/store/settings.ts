@@ -10,9 +10,45 @@ export function getSettings(): AppSettings {
   return { ...DEFAULT_SETTINGS, ...store.store }
 }
 
-export function updateSettings(patch: Partial<AppSettings>): AppSettings {
-  for (const [k, v] of Object.entries(patch)) {
-    if (v !== undefined) (store as any).set(k, v)
+const VALID_THEMES = new Set<string>(['light', 'dark', 'solarized-dark'])
+
+/** sec-M-5: ホワイトリスト + 型チェックで安全なパッチのみ適用 */
+export function updateSettings(patch: unknown): AppSettings {
+  if (typeof patch !== 'object' || patch === null) throw new Error('Invalid settings patch')
+  const safePatch: Partial<AppSettings> = {}
+  const p = patch as Record<string, unknown>
+
+  if ('fontFamily' in p) {
+    if (typeof p['fontFamily'] !== 'string' || p['fontFamily'].length > 200) throw new Error('Invalid fontFamily')
+    safePatch.fontFamily = p['fontFamily']
+  }
+  if ('fontSize' in p) {
+    if (typeof p['fontSize'] !== 'number' || p['fontSize'] < 8 || p['fontSize'] > 32) throw new Error('Invalid fontSize (8-32)')
+    safePatch.fontSize = p['fontSize']
+  }
+  if ('lineHeight' in p) {
+    if (typeof p['lineHeight'] !== 'number' || p['lineHeight'] < 0.8 || p['lineHeight'] > 2.5) throw new Error('Invalid lineHeight (0.8-2.5)')
+    safePatch.lineHeight = p['lineHeight']
+  }
+  if ('theme' in p) {
+    if (typeof p['theme'] !== 'string' || !VALID_THEMES.has(p['theme'])) throw new Error('Invalid theme')
+    safePatch.theme = p['theme'] as AppSettings['theme']
+  }
+  if ('copyOnSelect' in p) {
+    if (typeof p['copyOnSelect'] !== 'boolean') throw new Error('Invalid copyOnSelect')
+    safePatch.copyOnSelect = p['copyOnSelect']
+  }
+  if ('bracketedPaste' in p) {
+    if (typeof p['bracketedPaste'] !== 'boolean') throw new Error('Invalid bracketedPaste')
+    safePatch.bracketedPaste = p['bracketedPaste']
+  }
+  if ('autoLockMinutes' in p) {
+    if (typeof p['autoLockMinutes'] !== 'number' || p['autoLockMinutes'] < 0 || p['autoLockMinutes'] > 1440) throw new Error('Invalid autoLockMinutes (0-1440)')
+    safePatch.autoLockMinutes = p['autoLockMinutes']
+  }
+
+  for (const [k, v] of Object.entries(safePatch)) {
+    if (v !== undefined) (store as unknown as { set: (k: string, v: unknown) => void }).set(k, v)
   }
   return getSettings()
 }

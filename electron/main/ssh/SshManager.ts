@@ -16,8 +16,12 @@ interface ActiveSession {
   client: Client
   shell?: ClientChannel
   sftp?: SFTPWrapper
+  /** C-1: 並行 SFTP 生成を防ぐ pending promise */
+  sftpPending: Promise<SFTPWrapper> | null
   events: EventEmitter
   ready: boolean
+  /** C-2: close イベントの二重 fire を防ぐフラグ */
+  closed: boolean
 }
 
 const sessions = new Map<string, ActiveSession>()
@@ -82,7 +86,7 @@ export function open(profile: SessionProfile, opts: OpenOptions = {}): { handle:
   const handle = randomUUID()
   const events = new EventEmitter()
   const client = new Client()
-  const session: ActiveSession = { id: handle, sessionId: profile.id, client, events, ready: false }
+  const session: ActiveSession = { id: handle, sessionId: profile.id, client, events, ready: false, sftpPending: null, closed: false }
   sessions.set(handle, session)
 
   client.on('ready', () => {
@@ -103,6 +107,9 @@ export function open(profile: SessionProfile, opts: OpenOptions = {}): { handle:
 
   client.on('error', (err) => events.emit('error', err.message))
   client.on('close', () => {
+    // C-2: closed フラグで二重 fire を防ぐ。削除・イベント発火はここで一元管理。
+    if (session.closed) return
+    session.closed = true
     sessions.delete(handle)
     events.emit('close')
   })
@@ -137,13 +144,14 @@ export function resize(handle: string, cols: number, rows: number): void {
 export function close(handle: string): void {
   const s = sessions.get(handle)
   if (!s) return
+  // m-6: shell.destroy() で即時破棄してから client.end()
   try {
-    s.shell?.end()
+    s.shell?.destroy()
   } catch {
     /* ignore */
   }
+  // C-2: sessions.delete / events.emit('close') は client.on('close') で一元化する
   s.client.end()
-  sessions.delete(handle)
 }
 
 export function getClient(handle: string): Client | undefined {
@@ -153,14 +161,22 @@ export function getClient(handle: string): Client | undefined {
 export async function getSftp(handle: string): Promise<SFTPWrapper> {
   const s = sessions.get(handle)
   if (!s) throw new Error('SSH session not found')
+  // C-1: 既存 SFTP ハンドル or pending promise を返し、並行生成を防ぐ
   if (s.sftp) return s.sftp
-  return await new Promise((resolve, reject) => {
-    s.client.sftp((err, sftp) => {
-      if (err) return reject(err)
-      s.sftp = sftp
-      resolve(sftp)
+  if (!s.sftpPending) {
+    s.sftpPending = new Promise((resolve, reject) => {
+      s.client.sftp((err, sftp) => {
+        if (err) {
+          s.sftpPending = null
+          return reject(err)
+        }
+        s.sftp = sftp
+        s.sftpPending = null
+        resolve(sftp)
+      })
     })
-  })
+  }
+  return s.sftpPending
 }
 
 export function execCommand(

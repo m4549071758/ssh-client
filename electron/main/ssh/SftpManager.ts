@@ -50,10 +50,11 @@ export async function list(handle: string, path: string): Promise<{ path: string
   const realpath = await new Promise<string>((resolve, reject) => {
     sftp.realpath(path || '.', (err, abs) => (err ? reject(err) : resolve(abs)))
   })
-  const list = await new Promise<{ filename: string; longname: string; attrs: Stats & { uid?: number; gid?: number } }[]>((resolve, reject) => {
-    sftp.readdir(realpath, (err, list) => (err ? reject(err) : resolve(list as any)))
+  const entries_raw = await new Promise<{ filename: string; longname: string; attrs: Stats & { uid?: number; gid?: number } }[]>((resolve, reject) => {
+    sftp.readdir(realpath, (err, entries) => (err ? reject(err) : resolve(entries as any)))
   })
-  const entries: SftpEntry[] = list
+  // n-3: ローカル変数名を関数名 list と衝突しないよう entries_raw に変更
+  const entries: SftpEntry[] = entries_raw
     .filter((e) => e.filename !== '.' && e.filename !== '..')
     .map((e) => {
       const { owner, group } = parseLongname(e.longname || '')
@@ -71,7 +72,9 @@ export async function list(handle: string, path: string): Promise<{ path: string
       }
     })
     .sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
+      // M-1: 型に優先順位を付けて正しく比較
+      const order: Record<SftpEntry['type'], number> = { dir: 0, link: 1, file: 2, other: 3 }
+      if (a.type !== b.type) return order[a.type] - order[b.type]
       return a.name.localeCompare(b.name)
     })
   return { path: realpath, entries }
@@ -266,6 +269,7 @@ export async function executeUpload(
           continue
         }
       }
+      // m-5: item.local は walkLocal の absLocal (ネイティブパス)。Node.js fs API / sftp.fastPut は Windows の \\ も正しく扱う。
       await new Promise<void>((resolve, reject) => {
         sftp.fastPut(item.local, item.remote, (err) => (err ? reject(err) : resolve()))
       })
@@ -280,7 +284,14 @@ function shellQuote(p: string): string {
   return "'" + p.replace(/'/g, "'\\''") + "'"
 }
 
+/** sec-M-1: POSIX 絶対パスの検証 (null バイト不可) */
+function isAbsolutePosixPath(p: string): boolean {
+  return /^\/[^\0]*$/.test(p)
+}
+
 export async function movePath(handle: string, sources: string[], destDir: string): Promise<void> {
+  // sec-M-1: destDir が絶対パス形式であることを検証
+  if (!isAbsolutePosixPath(destDir)) throw new Error(`Invalid destination path: ${destDir}`)
   for (const src of sources) {
     const cmd = `mv -- ${shellQuote(src)} ${shellQuote(destDir + '/')}`
     const result = await execCommand(handle, cmd)
@@ -291,6 +302,8 @@ export async function movePath(handle: string, sources: string[], destDir: strin
 }
 
 export async function copyPath(handle: string, sources: string[], destDir: string): Promise<void> {
+  // sec-M-1: destDir が絶対パス形式であることを検証
+  if (!isAbsolutePosixPath(destDir)) throw new Error(`Invalid destination path: ${destDir}`)
   for (const src of sources) {
     const cmd = `cp -r -- ${shellQuote(src)} ${shellQuote(destDir + '/')}`
     const result = await execCommand(handle, cmd)
@@ -310,6 +323,8 @@ interface ExternalWatcher {
   watcher: FSWatcher | null
   pollPath: string | null
   tempDir: string
+  /** C-3: closeExternal 時にクリアするための debounce タイマー参照 */
+  debounceTimer: ReturnType<typeof setTimeout> | null
 }
 
 type PutBackListener = (info: { remotePath: string; ok: boolean; error?: string }) => void
@@ -347,13 +362,17 @@ export async function openExternal(
 
   // Use both fs.watch (event-based, fast) AND fs.watchFile (poll-based, reliable on Windows)
   // Many editors (Notepad, VS Code) write through temp files which fs.watch may miss.
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null
   let lastSize = -1
   let lastMtime = 0
 
+  // C-3: entry を先に生成して debounceTimer を管理できるようにする
+  const entry: ExternalWatcher = { watcherId, handle, tempPath, remotePath, watcher: null, pollPath: tempPath, tempDir, debounceTimer: null }
+  externalWatchers.set(watcherId, entry)
+
   const trigger = () => {
-    if (debounceTimer) clearTimeout(debounceTimer)
-    debounceTimer = setTimeout(async () => {
+    if (entry.debounceTimer) clearTimeout(entry.debounceTimer)
+    entry.debounceTimer = setTimeout(async () => {
+      entry.debounceTimer = null
       try {
         const stat = statSync(tempPath)
         // Skip if size and mtime haven't actually changed (avoids redundant uploads)
@@ -377,6 +396,7 @@ export async function openExternal(
   let watcher: FSWatcher | null = null
   try {
     watcher = watch(tempPath, () => trigger())
+    entry.watcher = watcher
   } catch {
     // ignore — watchFile below covers it
   }
@@ -394,15 +414,17 @@ export async function openExternal(
     /* ignore */
   }
 
-  const entry: ExternalWatcher = { watcherId, handle, tempPath, remotePath, watcher, pollPath: tempPath, tempDir }
-  externalWatchers.set(watcherId, entry)
-
   return { tempPath, watcherId }
 }
 
 export function closeExternal(watcherId: string): void {
   const entry = externalWatchers.get(watcherId)
   if (!entry) return
+  // C-3: pending な debounce タイマーをクリアして closeExternal 後の getSftp 呼び出しを防ぐ
+  if (entry.debounceTimer) {
+    clearTimeout(entry.debounceTimer)
+    entry.debounceTimer = null
+  }
   try {
     entry.watcher?.close()
   } catch {

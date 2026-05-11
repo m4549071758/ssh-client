@@ -1,4 +1,4 @@
-import { sealWithKey, openWithKey, type SealedBlob } from '../store/crypto'
+import { sealWithKey, openWithKey, type SealedBlobKey } from '../store/crypto'
 import { getOrCreateProtectionKey, type BiometricProvider } from './biometric'
 import { WindowsHelloProvider } from './windowsHello'
 import { MacTouchIdProvider } from './macTouchId'
@@ -21,7 +21,8 @@ export function getBiometricLabel(): string {
   return getBiometric().label
 }
 
-export async function helloSeal(dek: Buffer): Promise<{ sealed: SealedBlob; helloBlob: string }> {
+// M-7 / L-1: helloSeal の戻り値は SealedBlobKey (salt 不要)
+export async function helloSeal(dek: Buffer): Promise<{ sealed: SealedBlobKey; helloBlob: string }> {
   const bio = getBiometric()
   if (!(await bio.isAvailable())) throw new Error('Biometric authentication not available')
   const ok = await bio.verify('SSH Client: unlock credential vault')
@@ -29,13 +30,13 @@ export async function helloSeal(dek: Buffer): Promise<{ sealed: SealedBlob; hell
   const protKey = getOrCreateProtectionKey()
   try {
     const sealed = sealWithKey(protKey, dek)
-    return { sealed: { ...sealed, salt: '' } as SealedBlob, helloBlob: 'protected-v1' }
+    return { sealed, helloBlob: 'protected-v1' }
   } finally {
     protKey.fill(0)
   }
 }
 
-export async function helloUnseal(sealed: SealedBlob, _helloBlob: string): Promise<Buffer> {
+export async function helloUnseal(sealed: SealedBlobKey, _helloBlob: string): Promise<Buffer> {
   const bio = getBiometric()
   if (!(await bio.isAvailable())) throw new Error('Biometric authentication not available')
   const ok = await bio.verify('SSH Client: unlock credential vault')

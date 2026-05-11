@@ -1,6 +1,6 @@
 {
   "name": "ssh-client",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Modern cross-platform SSH client with integrated SFTP, credential vault, and biometric unlock",
   "main": "out/main/index.js",
   "author": "m4549071758",
@@ -51,7 +51,7 @@
     "@types/ssh2": "^1.15.1",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
-    "electron": "^33.2.0",
+    "electron": "^42.0.1",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
     "postcss": "^8.4.49",
@@ -107,8 +107,18 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
-        { "target": "dmg", "arch": ["universal"] },
-        { "target": "zip", "arch": ["universal"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
       ],
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
@@ -118,8 +128,18 @@
     "linux": {
       "category": "Development",
       "target": [
-        { "target": "AppImage", "arch": ["x64"] },
-        { "target": "deb", "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },

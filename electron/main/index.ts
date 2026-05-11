@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron'
-import { join } from 'node:path'
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, session } from 'electron'
+import { join, basename } from 'node:path'
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 import * as Sessions from './store/sessions'
@@ -30,7 +31,7 @@ function createWindow(): void {
     show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: true,         // H-3: preload は contextBridge + ipcRenderer のみなので移行可能
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -39,9 +40,19 @@ function createWindow(): void {
   Menu.setApplicationMenu(null)
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+  // H-1: https? のみ許可し、file:// / smb:// 等の危険スキームを拒否
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url)
+    }
     return { action: 'deny' }
+  })
+  // H-2: will-navigate で外部 URL へのナビゲーションを防止
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const allowed = process.env['ELECTRON_RENDERER_URL'] ?? `file://${join(__dirname, '../renderer/index.html')}`
+    if (!url.startsWith(allowed)) {
+      event.preventDefault()
+    }
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {
@@ -51,13 +62,15 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // F12 / Ctrl+Shift+I で DevTools を開く
-  mainWindow.webContents.on('before-input-event', (_e, input) => {
-    if (input.type !== 'keyDown') return
-    if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
-      mainWindow?.webContents.toggleDevTools()
-    }
-  })
+  // M-4: F12 / Ctrl+Shift+I での DevTools 起動は開発環境のみ有効
+  if (process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.webContents.on('before-input-event', (_e, input) => {
+      if (input.type !== 'keyDown') return
+      if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+        mainWindow?.webContents.toggleDevTools()
+      }
+    })
+  }
 }
 
 function registerIpc(): void {
@@ -140,7 +153,9 @@ function registerIpc(): void {
     if (canceled) return []
     const uploaded: string[] = []
     for (const local of filePaths) {
-      const name = local.replace(/\\/g, '/').split('/').pop()!
+      // M-2: basename を使ってパス末尾を正しく取得
+      const name = basename(local)
+      if (!name) continue
       const remote = Sftp.joinPath(remoteDir, name)
       await Sftp.uploadFromFile(handle, local, remote)
       uploaded.push(remote)
@@ -148,9 +163,21 @@ function registerIpc(): void {
     return uploaded
   })
   ipcMain.handle('sftp:uploadPaths', async (_e, handle: string, remoteDir: string, paths: string[]) => {
+    // H-5: 簡易バリデーション (存在確認 + home ディレクトリ配下チェック)
+    // TODO: 厳格なホワイトリスト管理は将来課題
     const uploaded: string[] = []
     for (const local of paths) {
-      const name = local.replace(/\\/g, '/').split('/').pop()!
+      // M-2: basename を使ってパス末尾を正しく取得
+      const name = basename(local)
+      if (!name) continue
+      // H-5: ファイルの存在確認と home 配下チェック
+      if (!existsSync(local)) {
+        throw new Error(`Upload path does not exist: ${local}`)
+      }
+      const homePath = app.getPath('home')
+      if (!local.startsWith(homePath)) {
+        throw new Error(`Upload path is outside home directory: ${local}`)
+      }
       const remote = Sftp.joinPath(remoteDir, name)
       await Sftp.uploadFromFile(handle, local, remote)
       uploaded.push(remote)
@@ -171,11 +198,14 @@ function registerIpc(): void {
   ipcMain.handle('sftp:removeRecursive', (_e, handle: string, path: string) => Sftp.removeRecursive(handle, path))
   ipcMain.handle('sftp:movePath', (_e, handle: string, sources: string[], destDir: string) => Sftp.movePath(handle, sources, destDir))
   ipcMain.handle('sftp:copyPath', (_e, handle: string, sources: string[], destDir: string) => Sftp.copyPath(handle, sources, destDir))
+  // M-3: sftp:downloadFolder は fastGet (ファイル専用) を使っているためディレクトリでは失敗する。
+  // 再帰ダウンロード実装は将来課題。現状は UI でフォルダへのダウンロードを制限している。
   ipcMain.handle('sftp:downloadFolder', async (_e, handle: string, remote: string) => {
     const win = BrowserWindow.getFocusedWindow() ?? mainWindow!
     const { canceled, filePaths } = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
     if (canceled || !filePaths[0]) return null
-    await Sftp.downloadToFile(handle, remote, require('node:path').join(filePaths[0], require('node:path').basename(remote)))
+    // n-1: require('node:path') を import した join / basename に変更
+    await Sftp.downloadToFile(handle, remote, join(filePaths[0], basename(remote)))
     return filePaths[0]
   })
   ipcMain.handle('sftp:downloadMultiple', async (_e, handle: string, remotes: string[]) => {
@@ -191,10 +221,10 @@ function registerIpc(): void {
     const { canceled, filePaths } = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
     if (canceled || !filePaths[0]) return null
     const destDir = filePaths[0]
-    const nodePath = require('node:path')
+    // n-1: require('node:path') を import した join に変更
     for (const remote of remotes) {
       const name = remote.split('/').pop() ?? 'file'
-      await Sftp.downloadToFile(handle, remote, nodePath.join(destDir, name))
+      await Sftp.downloadToFile(handle, remote, join(destDir, name))
     }
     return destDir
   })
@@ -230,6 +260,21 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
+  // sec-M-2: CSP ヘッダーを設定 (Monaco Editor + xterm のため unsafe-eval / blob: / unsafe-inline を許容)
+  // 元のレスポンスヘッダ (Content-Type 等) を保持しつつ CSP を追加。dev 時は HMR を阻害しないよう skip。
+  if (!process.env['ELECTRON_RENDERER_URL']) {
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' ws: wss:; worker-src 'self' blob:"
+          ]
+        }
+      })
+    })
+  }
+
   registerIpc()
   Sftp.onPutBack((info) => {
     if (mainWindow) mainWindow.webContents.send('sftp:putback', info)

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Modal } from './Modal'
 import { Button, Field, Input } from './ui'
 
@@ -16,6 +16,10 @@ export function AuthPrompt({
   onCancel: () => void
 }) {
   const [v, setV] = useState('')
+  // m-3: open が false になったとき state をリセットして前回の入力を残さない
+  useEffect(() => {
+    if (!open) setV('')
+  }, [open])
   return (
     <Modal open={open} onOpenChange={(o) => !o && onCancel()} title={title}>
       <Field label={label}>

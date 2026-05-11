@@ -26,8 +26,11 @@ Windows / macOS / Linux 向けのモダンな SSH / SFTP クライアント。El
 git clone https://github.com/m4549071758/ssh-client.git
 cd ssh-client
 npm install
+node node_modules/electron/install.js  # Electron 42+ ではバイナリ取得を手動実行する必要あり
 npm run dev
 ```
+
+> Electron 42 以降、`electron` パッケージは postinstall スクリプトを廃止し、バイナリのダウンロードがオンデマンド方式に変更されました。`npm install` 後に上記の `install.js` を一度実行してください。`node_modules/electron/dist/` が存在しない場合に必要です。
 
 > Electron バイナリのダウンロードでアンチウイルスが展開を妨害することがあります。Windows の場合は `Add-MpPreference -ExclusionPath "$PWD"` (管理者) や手動展開で回避できます。
 

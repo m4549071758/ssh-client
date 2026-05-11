@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 
-const KDF_PARAMS = { N: 1 << 15, r: 8, p: 1, keyLen: 32 }
+// L-3: scrypt N を OWASP 2023 推奨以上の 1<<17 に引き上げ
+const KDF_PARAMS = { N: 1 << 17, r: 8, p: 1, keyLen: 32 }
 const ALG = 'aes-256-gcm'
 
 export function deriveKey(password: string, salt: Buffer): Buffer {
@@ -12,6 +13,7 @@ export function deriveKey(password: string, salt: Buffer): Buffer {
   })
 }
 
+/** パスワード由来の DEK ラップに使用する sealed blob (salt 必須) */
 export interface SealedBlob {
   /** version */
   v: 1
@@ -22,7 +24,15 @@ export interface SealedBlob {
   ct: string
 }
 
-export function sealWithKey(key: Buffer, plaintext: Buffer): Omit<SealedBlob, 'salt'> & { salt?: string } {
+/** DEK で直接暗号化した sealed blob (salt 不要) — M-7 / L-1 対応 */
+export interface SealedBlobKey {
+  v: 1
+  iv: string
+  tag: string
+  ct: string
+}
+
+export function sealWithKey(key: Buffer, plaintext: Buffer): SealedBlobKey {
   const iv = randomBytes(12)
   const cipher = createCipheriv(ALG, key, iv)
   const ct = Buffer.concat([cipher.update(plaintext), cipher.final()])

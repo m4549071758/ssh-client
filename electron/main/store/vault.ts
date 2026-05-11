@@ -8,7 +8,8 @@ import {
   openWithPassword,
   sealWithKey,
   sealWithPassword,
-  type SealedBlob
+  type SealedBlob,
+  type SealedBlobKey
 } from './crypto'
 import type { VaultEntry, VaultEntryPublic, VaultStatus } from '../../shared/types'
 import { isHelloAvailable, helloUnseal, helloSeal } from '../auth'
@@ -22,10 +23,10 @@ interface VaultFile {
   version: 1
   /** master-password sealed DEK -> AES key wrapping content */
   master?: SealedBlob
-  /** content sealed by DEK */
-  content: SealedBlob | null
+  /** content sealed by DEK (SealedBlobKey 型; 後方互換で salt:'' の旧形式も許容) */
+  content: SealedBlobKey | null
   /** Hello-protected DEK (optional) */
-  hello?: { sealed: SealedBlob; helloBlob: string }
+  hello?: { sealed: SealedBlobKey; helloBlob: string }
 }
 
 const VAULT_FILE = () => join(app.getPath('userData'), 'vault.json')
@@ -54,8 +55,8 @@ function ensureLoaded(): VaultData {
 function persistContent(): void {
   if (!dek || !cache) throw new Error('Vault locked')
   const file = load()
-  const sealed = sealWithKey(dek, Buffer.from(JSON.stringify(cache), 'utf8'))
-  file.content = { ...sealed, salt: '' } as SealedBlob
+  // M-7 / L-1: sealWithKey は SealedBlobKey を返す (salt なし)。as キャスト不要。
+  file.content = sealWithKey(dek, Buffer.from(JSON.stringify(cache), 'utf8'))
   save(file)
 }
 
@@ -87,9 +88,9 @@ export async function setupMaster(password: string): Promise<void> {
   const wrap = sealWithPassword(password, newDek)
   // initialize empty content sealed by DEK
   const initial: VaultData = { version: 1, entries: [] }
-  const sealedContent = sealWithKey(newDek, Buffer.from(JSON.stringify(initial), 'utf8'))
   file.master = wrap
-  file.content = { ...sealedContent, salt: '' } as SealedBlob
+  // M-7 / L-1: SealedBlobKey を直接代入 (as キャスト不要)
+  file.content = sealWithKey(newDek, Buffer.from(JSON.stringify(initial), 'utf8'))
   save(file)
   dek = newDek
   cache = initial

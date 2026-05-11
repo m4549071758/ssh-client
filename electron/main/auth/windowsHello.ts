@@ -7,7 +7,9 @@ function runPowerShell(script: string, timeoutMs = 30000): Promise<{ code: numbe
     const ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
       windowsHide: true
     })
-    if (process.env.SSH_CLIENT_DEBUG_HELLO) {
+    // L-2: デバッグログは開発環境のみ有効 (本番ビルドでは ELECTRON_RENDERER_URL が未設定)
+    const debugEnabled = !!process.env.SSH_CLIENT_DEBUG_HELLO && process.env.NODE_ENV !== 'production' && !!process.env['ELECTRON_RENDERER_URL']
+    if (debugEnabled) {
       console.log('[hello] running script:', script)
     }
     let stdout = ''
@@ -17,7 +19,7 @@ function runPowerShell(script: string, timeoutMs = 30000): Promise<{ code: numbe
     ps.stderr.on('data', (d) => (stderr += d.toString()))
     ps.on('close', (code) => {
       clearTimeout(timer)
-      if (process.env.SSH_CLIENT_DEBUG_HELLO) {
+      if (debugEnabled) {
         console.log('[hello] code:', code, 'stdout:', JSON.stringify(stdout), 'stderr:', JSON.stringify(stderr))
       }
       resolve({ code: code ?? -1, stdout, stderr })
