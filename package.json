@@ -71,9 +71,9 @@
       "package.json"
     ],
     "asarUnpack": [
-      "**/node_modules/ssh2/**",
-      "**/node_modules/cpu-features/**"
+      "**/node_modules/ssh2/**"
     ],
+    "npmRebuild": false,
     "win": {
       "target": [
         {
@@ -127,15 +127,10 @@
     },
     "linux": {
       "category": "Development",
+      "maintainer": "m4549071758 <noreply@users.noreply.github.com>",
       "target": [
         {
           "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "deb",
           "arch": [
             "x64"
           ]
