@@ -8,6 +8,7 @@ import * as Vault from './store/vault'
 import * as Settings from './store/settings'
 import * as Ssh from './ssh/SshManager'
 import * as Sftp from './ssh/SftpManager'
+import * as Transfer from './ssh/TransferManager'
 import * as KnownHosts from './store/knownHosts'
 import { isHelloAvailable, getBiometricLabel } from './auth'
 
@@ -238,6 +239,39 @@ function registerIpc(): void {
     Sftp.openExternal(handle, remotePath)
   )
   ipcMain.handle('sftp:closeExternal', (_e, watcherId: string) => Sftp.closeExternal(watcherId))
+
+  // transfer: 並列ファイル転送 API
+  ipcMain.handle(
+    'transfer:startUpload',
+    (event, handle: string, items: { local: string; remote: string; isDir: boolean }[]) => {
+      return Transfer.startUpload(handle, items).then((transferId) => {
+        const wc = event.sender
+        const emitter = Transfer.getEmitter(transferId)
+        if (emitter) {
+          emitter.on('progress', (p) => wc.send(`transfer:progress:${transferId}`, p))
+          emitter.on('complete', (c) => wc.send(`transfer:complete:${transferId}`, c))
+          emitter.on('error', (msg: string) => wc.send(`transfer:error:${transferId}`, msg))
+        }
+        return transferId
+      })
+    }
+  )
+  ipcMain.handle(
+    'transfer:startDownload',
+    (event, handle: string, items: { remote: string; local: string; size?: number }[]) => {
+      return Transfer.startDownload(handle, items).then((transferId) => {
+        const wc = event.sender
+        const emitter = Transfer.getEmitter(transferId)
+        if (emitter) {
+          emitter.on('progress', (p) => wc.send(`transfer:progress:${transferId}`, p))
+          emitter.on('complete', (c) => wc.send(`transfer:complete:${transferId}`, c))
+          emitter.on('error', (msg: string) => wc.send(`transfer:error:${transferId}`, msg))
+        }
+        return transferId
+      })
+    }
+  )
+  ipcMain.handle('transfer:cancel', (_e, transferId: string) => Transfer.cancel(transferId))
 
   // dialogs
   ipcMain.handle('dialog:openFiles', async () => {

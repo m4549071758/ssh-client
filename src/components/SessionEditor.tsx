@@ -20,6 +20,9 @@ export function SessionEditor({ open, initial, vaultUnlocked, vaultEntries, onCl
   const [authType, setAuthType] = useState<SessionProfile['authType']>('password')
   const [credentialId, setCredentialId] = useState<string>('')
   const [privateKeyPath, setPrivateKeyPath] = useState<string>('')
+  const [group, setGroup] = useState('')
+  const [tags, setTags] = useState<string[]>([])
+  const [tagInput, setTagInput] = useState('')
   // A5: セッション単位の接続設定
   const [useGlobalKeepalive, setUseGlobalKeepalive] = useState(true)
   const [keepaliveInterval, setKeepaliveInterval] = useState(30)
@@ -37,6 +40,9 @@ export function SessionEditor({ open, initial, vaultUnlocked, vaultEntries, onCl
     setAuthType(initial?.authType ?? 'password')
     setCredentialId(initial?.credentialId ?? '')
     setPrivateKeyPath(initial?.privateKeyPath ?? '')
+    setGroup(initial?.group ?? '')
+    setTags(initial?.tags ?? [])
+    setTagInput('')
     setUseGlobalKeepalive(initial?.keepaliveInterval === undefined)
     setKeepaliveInterval(initial?.keepaliveInterval !== undefined ? Math.round(initial.keepaliveInterval / 1000) : 30)
     setKeepaliveCountMax(initial?.keepaliveCountMax ?? 3)
@@ -60,6 +66,8 @@ export function SessionEditor({ open, initial, vaultUnlocked, vaultEntries, onCl
       authType,
       credentialId: credentialId || undefined,
       privateKeyPath: privateKeyPath || undefined,
+      group: group.trim() || undefined,
+      tags: tags.length > 0 ? tags : undefined,
       keepaliveInterval: useGlobalKeepalive ? undefined : keepaliveInterval * 1000,
       keepaliveCountMax: useGlobalKeepalive ? undefined : keepaliveCountMax,
       autoReconnect: useGlobalReconnect ? undefined : autoReconnect,
@@ -132,6 +140,53 @@ export function SessionEditor({ open, initial, vaultUnlocked, vaultEntries, onCl
           </select>
         )}
       </Field>
+      {/* D1: 分類 */}
+      <div className="mt-4 border-t border-border pt-4">
+        <p className="mb-3 text-sm font-medium text-fg">分類</p>
+        <Field label="フォルダ (任意)">
+          <Input
+            value={group}
+            onChange={(e) => setGroup(e.target.value)}
+            placeholder='例: Production/AWS ("/" 区切りで階層化)'
+          />
+        </Field>
+        <Field label="タグ (任意)">
+          <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-bg-soft px-2 py-1.5">
+            {tags.map((t) => (
+              <span
+                key={t}
+                className="inline-flex items-center gap-1 rounded bg-bg-mute px-1.5 py-0.5 text-xs text-fg"
+              >
+                {t}
+                <button
+                  type="button"
+                  onClick={() => setTags(tags.filter((x) => x !== t))}
+                  className="text-fg-mute hover:text-rose-400"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            <input
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ',') {
+                  e.preventDefault()
+                  const v = tagInput.trim().replace(/,$/, '')
+                  if (v && !tags.includes(v)) setTags([...tags, v])
+                  setTagInput('')
+                } else if (e.key === 'Backspace' && !tagInput && tags.length > 0) {
+                  setTags(tags.slice(0, -1))
+                }
+              }}
+              placeholder={tags.length === 0 ? 'Enter or カンマで追加' : ''}
+              className="min-w-[80px] flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-fg-mute"
+            />
+          </div>
+        </Field>
+      </div>
+
       {/* A5: 詳細設定 */}
       <div className="mt-4 border-t border-border pt-4">
         <p className="mb-3 text-sm font-medium text-fg">詳細設定 (接続)</p>

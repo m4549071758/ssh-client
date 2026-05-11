@@ -222,6 +222,32 @@ export function SettingsDialog({
         </Field>
       </div>
 
+      <div className="mt-4 border-t border-border pt-4">
+        <p className="mb-3 text-sm font-medium text-fg">転送</p>
+        <Field label="並列転送数 (1〜10)">
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={1}
+              max={10}
+              value={draft.transferConcurrency ?? 4}
+              onChange={(e) => setDraft({ ...draft, transferConcurrency: parseInt(e.target.value, 10) })}
+              className="flex-1"
+            />
+            <Input
+              type="number"
+              className="w-16"
+              value={draft.transferConcurrency ?? 4}
+              onChange={(e) => {
+                const v = parseInt(e.target.value || '4', 10)
+                setDraft({ ...draft, transferConcurrency: Math.max(1, Math.min(10, v)) })
+              }}
+            />
+          </div>
+          <p className="mt-1 text-xs text-fg-mute">同時にアップロード / ダウンロードするファイル数。</p>
+        </Field>
+      </div>
+
       <div className="mt-3 flex justify-end gap-2">
         <Button variant="ghost" onClick={() => onOpenChange(false)}>キャンセル</Button>
         <Button

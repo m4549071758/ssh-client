@@ -18,6 +18,14 @@ interface Stats {
 import { getSftp, execCommand } from './SshManager'
 import type { SftpEntry } from '../../shared/types'
 
+/**
+ * TransferManager など外部モジュールから SFTP インスタンスを取得するためのエクスポート。
+ * SshManager.getSftp は既に export されているが、こちらは明示的な公開 API として提供する。
+ */
+export async function getSftpForHandle(handle: string): Promise<SFTPWrapper> {
+  return getSftp(handle)
+}
+
 function categorize(stats: Stats): SftpEntry['type'] {
   if (stats.isDirectory()) return 'dir'
   if (stats.isSymbolicLink()) return 'link'

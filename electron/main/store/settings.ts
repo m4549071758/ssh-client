@@ -62,6 +62,10 @@ export function updateSettings(patch: unknown): AppSettings {
     if (typeof p['autoReconnectMaxRetries'] !== 'number' || p['autoReconnectMaxRetries'] < 0 || p['autoReconnectMaxRetries'] > 20) throw new Error('Invalid autoReconnectMaxRetries (0-20)')
     safePatch.autoReconnectMaxRetries = p['autoReconnectMaxRetries']
   }
+  if ('transferConcurrency' in p) {
+    if (typeof p['transferConcurrency'] !== 'number' || p['transferConcurrency'] < 1 || p['transferConcurrency'] > 10) throw new Error('Invalid transferConcurrency (1-10)')
+    safePatch.transferConcurrency = p['transferConcurrency']
+  }
 
   for (const [k, v] of Object.entries(safePatch)) {
     if (v !== undefined) (store as unknown as { set: (k: string, v: unknown) => void }).set(k, v)

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { SessionProfile, VaultEntry, VaultEntryPublic, VaultStatus, AppSettings, SftpEntry, KnownHostEntry, HostKeyPromptInfo, HostKeyDecision } from '../shared/types'
+import type { SessionProfile, VaultEntry, VaultEntryPublic, VaultStatus, AppSettings, SftpEntry, KnownHostEntry, HostKeyPromptInfo, HostKeyDecision, TransferProgressEvent, TransferCompleteEvent } from '../shared/types'
 
 export interface UploadItem {
   localPath: string
@@ -145,6 +145,32 @@ const api = {
       const listener = (_: unknown, info: any) => cb(info)
       ipcRenderer.on('sftp:putback', listener)
       return () => ipcRenderer.removeListener('sftp:putback', listener)
+    }
+  },
+  transfer: {
+    startUpload: (handle: string, items: { local: string; remote: string; isDir: boolean }[]) =>
+      ipcRenderer.invoke('transfer:startUpload', handle, items) as Promise<string>,
+    startDownload: (handle: string, items: { remote: string; local: string; size?: number }[]) =>
+      ipcRenderer.invoke('transfer:startDownload', handle, items) as Promise<string>,
+    cancel: (transferId: string) =>
+      ipcRenderer.invoke('transfer:cancel', transferId) as Promise<void>,
+    onProgress: (transferId: string, cb: (p: TransferProgressEvent) => void) => {
+      const ch = `transfer:progress:${transferId}`
+      const listener = (_: unknown, p: TransferProgressEvent) => cb(p)
+      ipcRenderer.on(ch, listener)
+      return () => ipcRenderer.removeListener(ch, listener)
+    },
+    onComplete: (transferId: string, cb: (c: TransferCompleteEvent) => void) => {
+      const ch = `transfer:complete:${transferId}`
+      const listener = (_: unknown, c: TransferCompleteEvent) => cb(c)
+      ipcRenderer.on(ch, listener)
+      return () => ipcRenderer.removeListener(ch, listener)
+    },
+    onError: (transferId: string, cb: (msg: string) => void) => {
+      const ch = `transfer:error:${transferId}`
+      const listener = (_: unknown, msg: string) => cb(msg)
+      ipcRenderer.on(ch, listener)
+      return () => ipcRenderer.removeListener(ch, listener)
     }
   },
   dialog: {

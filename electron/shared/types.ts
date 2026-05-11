@@ -11,7 +11,10 @@ export interface SessionProfile {
   privateKeyPath?: string
   /** UI hint */
   color?: string
+  /** "/" 区切りの階層パス。例: "Production/AWS" */
   group?: string
+  /** 自由なタグ。検索・バッジ表示に使用 */
+  tags?: string[]
   /** terminal initial cwd hint, etc. (currently unused) */
   initialPath?: string
   createdAt: number
@@ -42,6 +45,49 @@ export interface VaultStatus {
   helloAvailable: boolean
 }
 
+export type TransferKind = 'upload' | 'download'
+export type TransferItemStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
+
+export interface TransferItem {
+  /** ファイル識別: アップなら local パス、ダウンなら remote パス */
+  path: string
+  /** SFTP 側のパス */
+  remote: string
+  /** 既知の場合のバイト数 (0 = 不明) */
+  size: number
+  transferred: number
+  status: TransferItemStatus
+  error?: string
+}
+
+export interface TransferState {
+  transferId: string
+  /** SSH handle */
+  handle: string
+  kind: TransferKind
+  items: TransferItem[]
+  startedAt: number
+  cancelled: boolean
+}
+
+export interface TransferProgressEvent {
+  transferId: string
+  totalBytes: number
+  transferredBytes: number
+  /** 完了 + 失敗 + キャンセル */
+  completed: number
+  /** items.length */
+  total: number
+  active: { path: string; transferred: number; size: number }[]
+}
+
+export interface TransferCompleteEvent {
+  transferId: string
+  successCount: number
+  failedFiles: { path: string; error: string }[]
+  cancelled: boolean
+}
+
 export interface AppSettings {
   fontFamily: string
   fontSize: number
@@ -58,6 +104,8 @@ export interface AppSettings {
   autoReconnect: boolean
   /** 自動再接続の最大試行回数 */
   autoReconnectMaxRetries: number
+  /** 並列転送数 (1〜10、デフォルト 4) */
+  transferConcurrency: number
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -71,7 +119,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keepaliveInterval: 30000,
   keepaliveCountMax: 3,
   autoReconnect: true,
-  autoReconnectMaxRetries: 5
+  autoReconnectMaxRetries: 5,
+  transferConcurrency: 4
 }
 
 export interface SshOpenResult {
