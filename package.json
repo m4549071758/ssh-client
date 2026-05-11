@@ -1,7 +1,7 @@
 {
   "name": "ssh-client",
-  "version": "0.1.0",
-  "description": "Modern Windows SSH client with integrated SFTP, credential vault, and Windows Hello",
+  "version": "0.2.0",
+  "description": "Modern cross-platform SSH client with integrated SFTP, credential vault, and biometric unlock",
   "main": "out/main/index.js",
   "author": "m4549071758",
   "license": "MIT",
@@ -15,7 +15,9 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "package": "npm run build && electron-builder --win nsis portable",
     "package:nsis": "npm run build && electron-builder --win nsis",
-    "package:portable": "npm run build && electron-builder --win portable"
+    "package:portable": "npm run build && electron-builder --win portable",
+    "package:mac": "npm run build && electron-builder --mac --universal",
+    "package:linux": "npm run build && electron-builder --linux"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
@@ -101,6 +103,28 @@
     "portable": {
       "artifactName": "${productName}-Portable-${version}.${ext}",
       "unpackDirName": "ssh-client-${version}"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        { "target": "dmg", "arch": ["universal"] },
+        { "target": "zip", "arch": ["universal"] }
+      ],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "category": "Development",
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb", "arch": ["x64"] }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     }
   }
 }

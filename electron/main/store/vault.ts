@@ -11,7 +11,7 @@ import {
   type SealedBlob
 } from './crypto'
 import type { VaultEntry, VaultEntryPublic, VaultStatus } from '../../shared/types'
-import { isHelloAvailable, helloUnseal, helloSeal } from '../auth/windowsHello'
+import { isHelloAvailable, helloUnseal, helloSeal } from '../auth'
 
 interface VaultData {
   version: 1

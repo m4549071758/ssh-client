@@ -17,6 +17,11 @@ export function VaultDialog({ open, onOpenChange, status, entries, onChanged }: 
   const [pw2, setPw2] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [bioLabel, setBioLabel] = useState('')
+
+  useEffect(() => {
+    api.hello.label().then(setBioLabel).catch(() => setBioLabel(''))
+  }, [])
 
   // entry editor
   const [label, setLabel] = useState('')
@@ -123,7 +128,7 @@ export function VaultDialog({ open, onOpenChange, status, entries, onChanged }: 
       {!status.hasMasterPassword && (
         <>
           <p className="mb-3 text-sm text-fg-mute">
-            グローバルな認証情報を保管するためのマスターパスワードを設定します。設定後、Windows Hello でも解除できるようにできます。
+            グローバルな認証情報を保管するためのマスターパスワードを設定します。{bioLabel && `設定後、${bioLabel} でも解除できるようにできます。`}
           </p>
           <Field label="マスターパスワード">
             <Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus />
@@ -155,7 +160,7 @@ export function VaultDialog({ open, onOpenChange, status, entries, onChanged }: 
           <div className="flex justify-end gap-2">
             {status.helloEnrolled && status.helloAvailable && (
               <Button variant="ghost" onClick={unlockHello} disabled={busy}>
-                <Fingerprint size={14} /> Windows Hello で解除
+                <Fingerprint size={14} /> {bioLabel || '生体認証'} で解除
               </Button>
             )}
             <Button onClick={unlock} disabled={busy}>
@@ -172,7 +177,7 @@ export function VaultDialog({ open, onOpenChange, status, entries, onChanged }: 
             <div className="flex gap-2">
               {status.helloAvailable && !status.helloEnrolled && (
                 <Button variant="ghost" onClick={enrollHello} disabled={busy}>
-                  <Fingerprint size={14} /> Windows Hello を有効化
+                  <Fingerprint size={14} /> {bioLabel || '生体認証'} を有効化
                 </Button>
               )}
               <Button variant="ghost" onClick={lock}>

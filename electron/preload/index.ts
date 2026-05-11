@@ -137,7 +137,8 @@ const api = {
     pathForFile: (file: File) => webUtils.getPathForFile(file)
   },
   hello: {
-    available: () => ipcRenderer.invoke('hello:available') as Promise<boolean>
+    available: () => ipcRenderer.invoke('hello:available') as Promise<boolean>,
+    label: () => ipcRenderer.invoke('hello:label') as Promise<string>
   }
 }
 

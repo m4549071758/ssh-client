@@ -7,7 +7,7 @@ import * as Vault from './store/vault'
 import * as Settings from './store/settings'
 import * as Ssh from './ssh/SshManager'
 import * as Sftp from './ssh/SftpManager'
-import { isHelloAvailable } from './auth/windowsHello'
+import { isHelloAvailable, getBiometricLabel } from './auth'
 
 import type { SessionProfile, VaultEntry } from '../shared/types'
 
@@ -226,6 +226,7 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('hello:available', () => isHelloAvailable())
+  ipcMain.handle('hello:label', () => getBiometricLabel())
 }
 
 app.whenReady().then(() => {
