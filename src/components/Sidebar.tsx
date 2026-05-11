@@ -24,7 +24,7 @@ export function Sidebar({
   onOpenSettings
 }: Props) {
   return (
-    <aside className="flex h-full w-64 flex-col border-r border-border bg-bg-soft">
+    <aside className="flex h-full w-full min-w-0 flex-col border-r border-border bg-bg-soft">
       <div className="border-b border-border px-3 py-3">
         <h1 className="text-sm font-semibold tracking-wide">SSH Client</h1>
       </div>

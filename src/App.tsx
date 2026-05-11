@@ -159,18 +159,22 @@ export default function App() {
       />
 
       <div className="flex flex-1 overflow-hidden">
-      <Sidebar
-        sessions={sessions}
-        vaultStatus={vault.status}
-        onNewSession={() => { setEditingSession(null); setEditorOpen(true) }}
-        onEditSession={(s) => { setEditingSession(s); setEditorOpen(true) }}
-        onDeleteSession={(s) => deleteSession(s.id)}
-        onConnect={handleConnect}
-        onOpenVault={() => setVaultOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
-
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <PanelGroup direction="horizontal" autoSaveId="ssh-client:outer-layout" className="flex-1">
+        <Panel defaultSize={16} minSize={10} maxSize={35}>
+          <Sidebar
+            sessions={sessions}
+            vaultStatus={vault.status}
+            onNewSession={() => { setEditingSession(null); setEditorOpen(true) }}
+            onEditSession={(s) => { setEditingSession(s); setEditorOpen(true) }}
+            onDeleteSession={(s) => deleteSession(s.id)}
+            onConnect={handleConnect}
+            onOpenVault={() => setVaultOpen(true)}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
+        </Panel>
+        <PanelResizeHandle className="w-1 bg-border hover:bg-accent transition-colors" />
+        <Panel defaultSize={84} minSize={40}>
+          <div className="flex h-full flex-col overflow-hidden">
         {tabs.length > 0 && (
           <TabBar
             tabs={tabs}
@@ -192,7 +196,7 @@ export default function App() {
               </div>
             )}
             {activeTab.handle && activeTab.status === 'ready' ? (
-              <PanelGroup direction="horizontal" className="flex-1">
+              <PanelGroup direction="horizontal" autoSaveId="ssh-client:terminal-sftp" className="flex-1">
                 <Panel defaultSize={60} minSize={20}>
                   <TerminalPane
                     handle={activeTab.handle}
@@ -217,7 +221,9 @@ export default function App() {
             )}
           </div>
         ) : null}
-      </div>
+          </div>
+        </Panel>
+      </PanelGroup>
 
       {/* Modals */}
       {vault.status && (
