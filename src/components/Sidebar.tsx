@@ -1,17 +1,20 @@
 import { useMemo, useState } from 'react'
 import {
+  Archive,
   ChevronDown,
   ChevronRight,
   Edit2,
   Folder,
   FolderOpen,
+  KeyRound,
   Lock,
   Plus,
   Search,
   Server,
   Settings as SettingsIcon,
   Trash2,
-  Unlock
+  Unlock,
+  Zap
 } from 'lucide-react'
 import type { SessionProfile, VaultStatus } from '../ipc'
 import { Button, cn } from './ui'
@@ -25,6 +28,9 @@ interface Props {
   onConnect: (s: SessionProfile) => void
   onOpenVault: () => void
   onOpenSettings: () => void
+  onQuickConnect: () => void
+  onOpenKeygen: () => void
+  onOpenBackup: () => void
 }
 
 interface FolderNode {
@@ -112,7 +118,10 @@ export function Sidebar({
   onDeleteSession,
   onConnect,
   onOpenVault,
-  onOpenSettings
+  onOpenSettings,
+  onQuickConnect,
+  onOpenKeygen,
+  onOpenBackup
 }: Props) {
   const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed())
@@ -150,6 +159,13 @@ export function Sidebar({
           />
         </div>
         <button
+          onClick={onQuickConnect}
+          title="クイック接続 (user@host)"
+          className="rounded p-1 text-fg-mute hover:bg-bg-mute hover:text-fg"
+        >
+          <Zap size={14} />
+        </button>
+        <button
           onClick={onNewSession}
           title="新規セッション"
           className="rounded p-1 text-fg-mute hover:bg-bg-mute hover:text-fg"
@@ -180,6 +196,14 @@ export function Sidebar({
         <Button variant="ghost" className="mb-1 w-full justify-start" onClick={onOpenVault}>
           {vaultStatus?.isUnlocked ? <Unlock size={14} /> : <Lock size={14} />}
           <span>Vault {vaultStatus?.isUnlocked ? '(unlocked)' : ''}</span>
+        </Button>
+        <Button variant="ghost" className="mb-1 w-full justify-start" onClick={onOpenKeygen}>
+          <KeyRound size={14} />
+          <span>SSH 鍵生成</span>
+        </Button>
+        <Button variant="ghost" className="mb-1 w-full justify-start" onClick={onOpenBackup}>
+          <Archive size={14} />
+          <span>バックアップ</span>
         </Button>
         <Button variant="ghost" className="w-full justify-start" onClick={onOpenSettings}>
           <SettingsIcon size={14} />

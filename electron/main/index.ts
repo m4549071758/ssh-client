@@ -10,6 +10,9 @@ import * as Ssh from './ssh/SshManager'
 import * as Sftp from './ssh/SftpManager'
 import * as Transfer from './ssh/TransferManager'
 import * as KnownHosts from './store/knownHosts'
+import * as Backup from './store/backup'
+import * as Keygen from './ssh/keygen'
+import { homedir } from 'node:os'
 import { isHelloAvailable, getBiometricLabel } from './auth'
 
 import type { SessionProfile, VaultEntry, HostKeyDecision } from '../shared/types'
@@ -272,6 +275,19 @@ function registerIpc(): void {
     }
   )
   ipcMain.handle('transfer:cancel', (_e, transferId: string) => Transfer.cancel(transferId))
+  ipcMain.handle('transfer:retryFailed', async (event, transferId: string) => {
+    const newId = await Transfer.retryFailed(transferId)
+    if (newId) {
+      const wc = event.sender
+      const emitter = Transfer.getEmitter(newId)
+      if (emitter) {
+        emitter.on('progress', (p) => wc.send(`transfer:progress:${newId}`, p))
+        emitter.on('complete', (c) => wc.send(`transfer:complete:${newId}`, c))
+        emitter.on('error', (msg: string) => wc.send(`transfer:error:${newId}`, msg))
+      }
+    }
+    return newId
+  })
 
   // dialogs
   ipcMain.handle('dialog:openFiles', async () => {
@@ -302,6 +318,40 @@ function registerIpc(): void {
   ipcMain.handle('knownHosts:list', () => KnownHosts.list())
   ipcMain.handle('knownHosts:remove', (_e, host: string) => KnownHosts.remove(host))
   ipcMain.handle('knownHosts:clear', () => KnownHosts.clear())
+
+  // keygen
+  ipcMain.handle('keys:defaultDir', () => join(homedir(), '.ssh'))
+  ipcMain.handle('keys:pickSaveDir', async () => {
+    const win = BrowserWindow.getFocusedWindow() ?? mainWindow!
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: join(homedir(), '.ssh')
+    })
+    if (canceled || !filePaths[0]) return null
+    return filePaths[0]
+  })
+  ipcMain.handle('keys:generate', async (_e, opts: Keygen.KeygenOptions) => Keygen.generateKeyPair(opts))
+
+  // backup (D4 + 追加要望: コンフィグまるごとバックアップ)
+  ipcMain.handle('backup:export', async (_e, password: string) => {
+    const win = BrowserWindow.getFocusedWindow() ?? mainWindow!
+    const defaultName = `ssh-client-backup-${new Date().toISOString().slice(0, 10)}.json`
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      defaultPath: defaultName,
+      filters: [{ name: 'SSH Client Backup', extensions: ['json'] }]
+    })
+    if (canceled || !filePath) return null
+    return Backup.exportToFile(filePath, password)
+  })
+  ipcMain.handle('backup:import', async (_e, password: string) => {
+    const win = BrowserWindow.getFocusedWindow() ?? mainWindow!
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      filters: [{ name: 'SSH Client Backup', extensions: ['json'] }],
+      properties: ['openFile']
+    })
+    if (canceled || filePaths.length === 0) return null
+    return Backup.importFromFile(filePaths[0], password)
+  })
 }
 
 app.whenReady().then(() => {

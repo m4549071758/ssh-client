@@ -27,7 +27,7 @@ export function SettingsDialog({
   const [draft, setDraft] = useState(settings)
   useEffect(() => setDraft(settings), [settings, open])
 
-  const [activeTab, setActiveTab] = useState<'general' | 'hostkeys'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'snippets' | 'hostkeys'>('general')
   const [knownHosts, setKnownHosts] = useState<KnownHostEntry[]>([])
 
   useEffect(() => {
@@ -57,12 +57,38 @@ export function SettingsDialog({
           一般
         </button>
         <button
+          className={`px-3 py-1.5 text-sm transition-colors ${activeTab === 'snippets' ? 'border-b-2 border-accent text-accent' : 'text-fg-mute hover:text-fg'}`}
+          onClick={() => setActiveTab('snippets')}
+        >
+          スニペット
+        </button>
+        <button
           className={`px-3 py-1.5 text-sm transition-colors ${activeTab === 'hostkeys' ? 'border-b-2 border-accent text-accent' : 'text-fg-mute hover:text-fg'}`}
           onClick={() => setActiveTab('hostkeys')}
         >
           ホスト鍵
         </button>
       </div>
+
+      {activeTab === 'snippets' && (
+        <SnippetsEditor
+          snippets={draft.snippets ?? []}
+          onChange={(snippets) => setDraft({ ...draft, snippets })}
+        />
+      )}
+      {activeTab === 'snippets' && (
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>キャンセル</Button>
+          <Button
+            onClick={() => {
+              onSave(draft)
+              onOpenChange(false)
+            }}
+          >
+            保存
+          </Button>
+        </div>
+      )}
 
       {activeTab === 'hostkeys' && (
         <div>
@@ -261,5 +287,66 @@ export function SettingsDialog({
       </div>
       </>}
     </Modal>
+  )
+}
+
+function SnippetsEditor({
+  snippets,
+  onChange
+}: {
+  snippets: AppSettings['snippets']
+  onChange: (next: AppSettings['snippets']) => void
+}): JSX.Element {
+  function add(): void {
+    const id = 'sn-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+    onChange([...snippets, { id, label: '新規スニペット', content: '', appendNewline: true }])
+  }
+  function update(id: string, patch: Partial<AppSettings['snippets'][number]>): void {
+    onChange(snippets.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+  }
+  function remove(id: string): void {
+    onChange(snippets.filter((s) => s.id !== id))
+  }
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-sm text-fg-mute">登録済みスニペット ({snippets.length} 件)</p>
+        <Button variant="ghost" onClick={add}>追加</Button>
+      </div>
+      {snippets.length === 0 ? (
+        <p className="py-6 text-center text-sm text-fg-mute">スニペットが登録されていません</p>
+      ) : (
+        <div className="max-h-80 space-y-2 overflow-y-auto">
+          {snippets.map((s) => (
+            <div key={s.id} className="rounded border border-border bg-bg-mute p-2">
+              <div className="mb-2 flex items-center gap-2">
+                <Input
+                  value={s.label}
+                  onChange={(e) => update(s.id, { label: e.target.value })}
+                  placeholder="ラベル"
+                />
+                <Button variant="danger" onClick={() => remove(s.id)}>削除</Button>
+              </div>
+              <textarea
+                value={s.content}
+                onChange={(e) => update(s.id, { content: e.target.value })}
+                placeholder="送信するコマンド (複数行可)"
+                rows={3}
+                className="w-full resize-y rounded-md border border-border bg-bg-soft px-2.5 py-1.5 font-mono text-xs text-fg outline-none focus:border-accent"
+              />
+              <label className="mt-1 flex items-center gap-2 text-xs text-fg-mute">
+                <input
+                  type="checkbox"
+                  checked={s.appendNewline}
+                  onChange={(e) => update(s.id, { appendNewline: e.target.checked })}
+                />
+                送信時に末尾改行を付与する
+              </label>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }

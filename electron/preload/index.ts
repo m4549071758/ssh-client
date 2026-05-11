@@ -1,6 +1,29 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { SessionProfile, VaultEntry, VaultEntryPublic, VaultStatus, AppSettings, SftpEntry, KnownHostEntry, HostKeyPromptInfo, HostKeyDecision, TransferProgressEvent, TransferCompleteEvent } from '../shared/types'
 
+export interface KeygenOptions {
+  algorithm: 'ed25519' | 'rsa' | 'ecdsa'
+  bits?: number
+  comment?: string
+  passphrase?: string
+  privateKeyPath: string
+  publicKeyPath?: string
+}
+
+export interface KeygenResult {
+  privateKeyPath: string
+  publicKeyPath: string
+  publicKey: string
+  fingerprint: string
+}
+
+export interface BackupSummary {
+  exportedAt: number
+  vaultEntries: number
+  sessions: number
+  knownHosts: number
+}
+
 export interface UploadItem {
   localPath: string
   remoteDir: string
@@ -154,6 +177,8 @@ const api = {
       ipcRenderer.invoke('transfer:startDownload', handle, items) as Promise<string>,
     cancel: (transferId: string) =>
       ipcRenderer.invoke('transfer:cancel', transferId) as Promise<void>,
+    retryFailed: (transferId: string) =>
+      ipcRenderer.invoke('transfer:retryFailed', transferId) as Promise<string | null>,
     onProgress: (transferId: string, cb: (p: TransferProgressEvent) => void) => {
       const ch = `transfer:progress:${transferId}`
       const listener = (_: unknown, p: TransferProgressEvent) => cb(p)
@@ -183,6 +208,17 @@ const api = {
   hello: {
     available: () => ipcRenderer.invoke('hello:available') as Promise<boolean>,
     label: () => ipcRenderer.invoke('hello:label') as Promise<string>
+  },
+  keys: {
+    defaultDir: () => ipcRenderer.invoke('keys:defaultDir') as Promise<string>,
+    pickSaveDir: () => ipcRenderer.invoke('keys:pickSaveDir') as Promise<string | null>,
+    generate: (opts: KeygenOptions) => ipcRenderer.invoke('keys:generate', opts) as Promise<KeygenResult>
+  },
+  backup: {
+    exportBackup: (password: string) =>
+      ipcRenderer.invoke('backup:export', password) as Promise<BackupSummary | null>,
+    importBackup: (password: string) =>
+      ipcRenderer.invoke('backup:import', password) as Promise<BackupSummary | null>
   }
 }
 

@@ -65,3 +65,7 @@ export function remove(host: string): void {
 export function clear(): void {
   save({ version: 1, entries: [] })
 }
+
+export function replaceAll(entries: KnownHostEntry[]): void {
+  save({ version: 1, entries: [...entries] })
+}

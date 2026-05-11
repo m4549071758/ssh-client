@@ -88,6 +88,14 @@ export interface TransferCompleteEvent {
   cancelled: boolean
 }
 
+export interface Snippet {
+  id: string
+  label: string
+  content: string
+  /** 行末改行を自動的に付与する */
+  appendNewline: boolean
+}
+
 export interface AppSettings {
   fontFamily: string
   fontSize: number
@@ -106,6 +114,8 @@ export interface AppSettings {
   autoReconnectMaxRetries: number
   /** 並列転送数 (1〜10、デフォルト 4) */
   transferConcurrency: number
+  /** コマンドスニペット */
+  snippets: Snippet[]
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -120,7 +130,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keepaliveCountMax: 3,
   autoReconnect: true,
   autoReconnectMaxRetries: 5,
-  transferConcurrency: 4
+  transferConcurrency: 4,
+  snippets: []
 }
 
 export interface SshOpenResult {

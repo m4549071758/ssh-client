@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { stat } from 'node:fs/promises'
+import { createReadStream, createWriteStream } from 'node:fs'
+import { pipeline } from 'node:stream/promises'
+import type { SFTPWrapper } from 'ssh2'
 import { getSftpForHandle } from './SftpManager'
 import * as Settings from '../store/settings'
 import type {
@@ -16,6 +19,8 @@ interface TransferStateInternal extends TransferState {
   emitter: EventEmitter
   /** ダウンロード時のみ使用: items と同インデックスのローカル保存先パス */
   localPaths?: string[]
+  /** レジューム転送モード (既存サイズから続ける)。デフォルト false = 上書き */
+  resume: boolean
 }
 
 const transfers = new Map<string, TransferStateInternal>()
@@ -26,14 +31,14 @@ export function getEmitter(transferId: string): EventEmitter | undefined {
 
 export async function startUpload(
   handle: string,
-  items: { local: string; remote: string; isDir: boolean }[]
+  items: { local: string; remote: string; isDir: boolean }[],
+  options?: { resume?: boolean }
 ): Promise<string> {
   const transferId = randomUUID()
   const emitter = new EventEmitter()
 
   const transferItems: TransferItem[] = []
   for (const it of items) {
-    // ディレクトリはサイズ不明 (0)、ファイルは stat で取得
     const size = it.isDir ? 0 : (await stat(it.local).catch(() => ({ size: 0 }))).size
     transferItems.push({
       path: it.local,
@@ -51,11 +56,11 @@ export async function startUpload(
     items: transferItems,
     startedAt: Date.now(),
     cancelled: false,
-    emitter
+    emitter,
+    resume: options?.resume ?? false
   }
   transfers.set(transferId, state)
 
-  // setImmediate でレンダラーが listener を貼る隙を確保してから開始
   setImmediate(() =>
     runTransfer(transferId).catch((e) => emitter.emit('error', (e as Error).message))
   )
@@ -64,7 +69,8 @@ export async function startUpload(
 
 export async function startDownload(
   handle: string,
-  items: { remote: string; local: string; size?: number }[]
+  items: { remote: string; local: string; size?: number }[],
+  options?: { resume?: boolean }
 ): Promise<string> {
   const transferId = randomUUID()
   const emitter = new EventEmitter()
@@ -85,7 +91,8 @@ export async function startDownload(
     startedAt: Date.now(),
     cancelled: false,
     emitter,
-    localPaths: items.map((it) => it.local)
+    localPaths: items.map((it) => it.local),
+    resume: options?.resume ?? false
   }
   transfers.set(transferId, state)
 
@@ -100,6 +107,140 @@ export function cancel(transferId: string): void {
   if (t) t.cancelled = true
 }
 
+/**
+ * B2: 失敗ファイルのみをレジューム転送で再試行する。
+ * 既存サイズからの続きを stream で書き込むためにバイト位置レジュームが効く。
+ */
+export async function retryFailed(transferId: string): Promise<string | null> {
+  const orig = transfers.get(transferId)
+  if (!orig) throw new Error('Transfer not found or already cleaned up')
+  if (orig.kind === 'upload') {
+    const items = orig.items
+      .filter((it) => it.status === 'failed')
+      .map((it) => ({ local: it.path, remote: it.remote, isDir: false }))
+    if (items.length === 0) return null
+    return startUpload(orig.handle, items, { resume: true })
+  } else {
+    const locals = orig.localPaths ?? []
+    const items = orig.items
+      .map((it, idx) => ({ it, idx }))
+      .filter((x) => x.it.status === 'failed')
+      .map((x) => ({ remote: x.it.remote, local: locals[x.idx], size: x.it.size }))
+    if (items.length === 0) return null
+    return startDownload(orig.handle, items, { resume: true })
+  }
+}
+
+function sftpStat(sftp: SFTPWrapper, remote: string): Promise<{ size: number } | null> {
+  return new Promise((resolve) => {
+    sftp.stat(remote, (err, stats) => {
+      if (err || !stats) resolve(null)
+      else resolve({ size: stats.size })
+    })
+  })
+}
+
+async function transferOneUpload(
+  sftp: SFTPWrapper,
+  item: TransferItem,
+  resume: boolean,
+  onProgress: () => void,
+  isCancelled: () => boolean
+): Promise<void> {
+  // 通常の総サイズ取得
+  const localStat = await stat(item.path)
+  item.size = localStat.size
+
+  // レジューム時はリモートサイズから再開
+  let start = 0
+  if (resume) {
+    const remoteStat = await sftpStat(sftp, item.remote)
+    start = remoteStat?.size ?? 0
+    if (start > localStat.size) {
+      // リモートの方が大きい (=破損 or 別ファイル)。安全のため上書きに切替
+      start = 0
+    }
+    if (start === localStat.size && start > 0) {
+      // 既に完了済み
+      item.transferred = start
+      return
+    }
+  }
+
+  const readStream = createReadStream(item.path, { start })
+  const writeStream = sftp.createWriteStream(item.remote, {
+    flags: start > 0 ? 'r+' : 'w',
+    start
+  } as unknown as Parameters<SFTPWrapper['createWriteStream']>[1])
+
+  item.transferred = start
+  onProgress()
+
+  // 'data' で進捗更新
+  readStream.on('data', (chunk: Buffer | string) => {
+    const len = typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length
+    item.transferred += len
+    onProgress()
+    if (isCancelled()) {
+      readStream.destroy()
+      writeStream.destroy()
+    }
+  })
+
+  await pipeline(readStream, writeStream)
+}
+
+async function transferOneDownload(
+  sftp: SFTPWrapper,
+  item: TransferItem,
+  localPath: string,
+  resume: boolean,
+  onProgress: () => void,
+  isCancelled: () => boolean
+): Promise<void> {
+  const remoteStat = await sftpStat(sftp, item.remote)
+  const total = remoteStat?.size ?? 0
+  item.size = total
+
+  let start = 0
+  if (resume) {
+    try {
+      const localStat = await stat(localPath)
+      start = localStat.size
+      if (start > total) start = 0
+      if (start === total && start > 0) {
+        item.transferred = start
+        return
+      }
+    } catch {
+      // ローカル未作成
+    }
+  }
+
+  const readStream = sftp.createReadStream(item.remote, {
+    start
+  } as unknown as Parameters<SFTPWrapper['createReadStream']>[1])
+  const writeStream = createWriteStream(localPath, {
+    flags: start > 0 ? 'r+' : 'w',
+    start
+  })
+
+  item.transferred = start
+  onProgress()
+
+  readStream.on('data', (chunk: Buffer | string) => {
+    const len = typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length
+    item.transferred += len
+    onProgress()
+    if (isCancelled()) {
+      readStream.destroy()
+      writeStream.destroy()
+    }
+  })
+
+  await pipeline(readStream, writeStream)
+}
+
 async function runTransfer(transferId: string): Promise<void> {
   const found = transfers.get(transferId)
   if (!found) return
@@ -111,16 +252,16 @@ async function runTransfer(transferId: string): Promise<void> {
 
   let nextIdx = 0
 
-  // 100ms debounce で進捗 emit
   let progressTimer: ReturnType<typeof setTimeout> | null = null
   const emitProgress = (): void => {
     if (progressTimer) return
     progressTimer = setTimeout(() => {
       progressTimer = null
-      const evt = computeProgress(t)
-      t.emitter.emit('progress', evt)
+      t.emitter.emit('progress', computeProgress(t))
     }, 100)
   }
+
+  const isCancelled = (): boolean => t.cancelled
 
   async function worker(): Promise<void> {
     while (true) {
@@ -133,43 +274,20 @@ async function runTransfer(transferId: string): Promise<void> {
 
       try {
         if (t.kind === 'upload') {
-          await new Promise<void>((resolve, reject) => {
-            sftp.fastPut(
-              item.path,
-              item.remote,
-              {
-                step: (transferred: number, _chunk: number, total: number) => {
-                  item.transferred = transferred
-                  if (total) item.size = total
-                  emitProgress()
-                }
-              },
-              (err) => (err ? reject(err) : resolve())
-            )
-          })
+          await transferOneUpload(sftp, item, t.resume, emitProgress, isCancelled)
         } else {
-          // ダウンロード: localPaths は startDownload で必ず設定される
           const localPath = (t.localPaths ?? [])[idx]
           if (!localPath) throw new Error(`No local path for index ${idx}`)
-          await new Promise<void>((resolve, reject) => {
-            sftp.fastGet(
-              item.remote,
-              localPath,
-              {
-                step: (transferred: number, _chunk: number, total: number) => {
-                  item.transferred = transferred
-                  if (total) item.size = total
-                  emitProgress()
-                }
-              },
-              (err) => (err ? reject(err) : resolve())
-            )
-          })
+          await transferOneDownload(sftp, item, localPath, t.resume, emitProgress, isCancelled)
         }
         item.status = t.cancelled ? 'cancelled' : 'done'
       } catch (e) {
-        item.status = 'failed'
-        item.error = (e as Error).message
+        if (t.cancelled) {
+          item.status = 'cancelled'
+        } else {
+          item.status = 'failed'
+          item.error = (e as Error).message
+        }
       }
       emitProgress()
     }
@@ -179,7 +297,6 @@ async function runTransfer(transferId: string): Promise<void> {
   for (let i = 0; i < concurrency; i++) workers.push(worker())
   await Promise.all(workers)
 
-  // debounce を flush して最終状態を送信
   if (progressTimer) {
     clearTimeout(progressTimer)
     progressTimer = null
@@ -198,7 +315,6 @@ async function runTransfer(transferId: string): Promise<void> {
   }
   t.emitter.emit('complete', complete)
 
-  // レンダラー側の complete 受信を待ってからクリーンアップ
   setTimeout(() => transfers.delete(transferId), 30000)
 }
 
@@ -210,8 +326,7 @@ function computeProgress(t: TransferStateInternal): TransferProgressEvent {
 
   for (const it of t.items) {
     totalBytes += it.size
-    transferredBytes +=
-      it.status === 'done' ? it.size : it.transferred
+    transferredBytes += it.status === 'done' ? it.size : it.transferred
     if (it.status === 'done' || it.status === 'failed' || it.status === 'cancelled') {
       completed++
     }

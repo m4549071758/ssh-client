@@ -44,3 +44,7 @@ export function deleteSession(id: string): void {
 export function getSession(id: string): SessionProfile | undefined {
   return store.get('sessions').find((s) => s.id === id)
 }
+
+export function replaceAll(sessions: SessionProfile[]): void {
+  store.set('sessions', sessions)
+}

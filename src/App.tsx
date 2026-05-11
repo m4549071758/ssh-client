@@ -14,6 +14,9 @@ import { AuthPrompt } from './components/AuthPrompt'
 import { HostKeyPrompt } from './components/HostKeyPrompt'
 import { PaneRenderer } from './components/PaneRenderer'
 import { SessionPickerModal } from './components/SessionPickerModal'
+import { QuickConnect, type QuickConnectTarget } from './components/QuickConnect'
+import { KeygenDialog } from './components/KeygenDialog'
+import { BackupDialog } from './components/BackupDialog'
 import type { HostKeyPromptInfo } from './ipc'
 
 export default function App() {
@@ -27,6 +30,9 @@ export default function App() {
   const [vaultOpen, setVaultOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
+  const [quickConnectOpen, setQuickConnectOpen] = useState(false)
+  const [keygenOpen, setKeygenOpen] = useState(false)
+  const [backupOpen, setBackupOpen] = useState(false)
   const [editingSession, setEditingSession] = useState<SessionProfile | null>(null)
   const [pendingConnect, setPendingConnect] = useState<SessionProfile | null>(null)
 
@@ -236,6 +242,23 @@ export default function App() {
     doConnect(session, undefined, undefined, tabId, newPaneId)
   }
 
+  async function handleQuickConnect(target: QuickConnectTarget): Promise<void> {
+    const saved = await api.sessions.save({
+      name: `${target.username}@${target.host}`,
+      host: target.host,
+      port: target.port,
+      username: target.username,
+      authType: 'password',
+      group: 'Quick'
+    })
+    await loadSessions()
+    if (target.password) {
+      doConnect(saved, target.password)
+    } else {
+      setAuthPrompt({ session: saved, type: 'password' })
+    }
+  }
+
   const defaultSettings = settings ?? DEFAULT_SETTINGS
 
   return (
@@ -257,6 +280,9 @@ export default function App() {
               onConnect={handleConnect}
               onOpenVault={() => setVaultOpen(true)}
               onOpenSettings={() => setSettingsOpen(true)}
+              onQuickConnect={() => setQuickConnectOpen(true)}
+              onOpenKeygen={() => setKeygenOpen(true)}
+              onOpenBackup={() => setBackupOpen(true)}
             />
           </Panel>
           <PanelResizeHandle className="w-1 bg-border hover:bg-accent transition-colors" />
@@ -345,6 +371,25 @@ export default function App() {
           sessions={sessions}
           onSelect={handleSplitSessionSelect}
           onCancel={() => setPendingSplit(null)}
+        />
+
+        <QuickConnect
+          open={quickConnectOpen}
+          onOpenChange={setQuickConnectOpen}
+          onConnect={handleQuickConnect}
+        />
+
+        <KeygenDialog open={keygenOpen} onOpenChange={setKeygenOpen} />
+
+        <BackupDialog
+          open={backupOpen}
+          onOpenChange={setBackupOpen}
+          vaultStatus={vault.status}
+          onChanged={() => {
+            loadSessions()
+            loadVault()
+            loadSettings()
+          }}
         />
       </div>
     </div>

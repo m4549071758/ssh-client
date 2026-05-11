@@ -66,6 +66,21 @@ export function updateSettings(patch: unknown): AppSettings {
     if (typeof p['transferConcurrency'] !== 'number' || p['transferConcurrency'] < 1 || p['transferConcurrency'] > 10) throw new Error('Invalid transferConcurrency (1-10)')
     safePatch.transferConcurrency = p['transferConcurrency']
   }
+  if ('snippets' in p) {
+    if (!Array.isArray(p['snippets'])) throw new Error('Invalid snippets')
+    const arr = p['snippets'] as unknown[]
+    const safe: AppSettings['snippets'] = []
+    for (const item of arr) {
+      if (typeof item !== 'object' || item === null) continue
+      const s = item as Record<string, unknown>
+      const id = typeof s['id'] === 'string' ? s['id'] : ''
+      const label = typeof s['label'] === 'string' ? s['label'].slice(0, 200) : ''
+      const content = typeof s['content'] === 'string' ? s['content'].slice(0, 20000) : ''
+      const appendNewline = typeof s['appendNewline'] === 'boolean' ? s['appendNewline'] : true
+      if (id && label && content) safe.push({ id, label, content, appendNewline })
+    }
+    safePatch.snippets = safe
+  }
 
   for (const [k, v] of Object.entries(safePatch)) {
     if (v !== undefined) (store as unknown as { set: (k: string, v: unknown) => void }).set(k, v)

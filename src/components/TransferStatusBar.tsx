@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { RefreshCw, X } from 'lucide-react'
 import { api } from '../ipc'
 import type { TransferProgressEvent, TransferCompleteEvent } from '../ipc'
 
@@ -135,6 +135,17 @@ export function TransferStatusBar({ onRegister }: Props) {
             api.transfer.cancel(entry.transferId).catch(() => undefined)
           }}
           onClose={() => removeEntry(entry.transferId)}
+          onRetry={async () => {
+            try {
+              const newId = await api.transfer.retryFailed(entry.transferId)
+              if (newId) {
+                register(newId, entry.kind)
+                removeEntry(entry.transferId)
+              }
+            } catch {
+              /* ignore */
+            }
+          }}
         />
       ))}
     </div>
@@ -144,11 +155,13 @@ export function TransferStatusBar({ onRegister }: Props) {
 function TransferRow({
   entry,
   onCancel,
-  onClose
+  onClose,
+  onRetry
 }: {
   entry: TransferEntry
   onCancel: () => void
   onClose: () => void
+  onRetry: () => void
 }) {
   const { kind, progress, complete } = entry
   const kindIcon = kind === 'upload' ? '↑' : '↓'
@@ -164,15 +177,27 @@ function TransferRow({
         {wasCancelled ? (
           <span className="text-fg-mute">キャンセル済み</span>
         ) : hasError ? (
-          <span className="text-rose-400">
+          <span className="text-rose-400 truncate">
             失敗 {complete.failedFiles.length} 件: {complete.failedFiles[0].error}
           </span>
         ) : (
           <span className="text-green-400">{complete.successCount} 件 完了</span>
         )}
-        <button onClick={onClose} className="ml-auto text-fg-mute hover:text-fg p-0.5">
-          <X size={12} />
-        </button>
+        <div className="ml-auto flex items-center gap-1">
+          {hasError && (
+            <button
+              onClick={onRetry}
+              title="失敗ファイルだけ再試行"
+              className="flex items-center gap-0.5 rounded px-1.5 py-0.5 text-fg-mute hover:bg-bg-mute hover:text-fg"
+            >
+              <RefreshCw size={11} />
+              再試行
+            </button>
+          )}
+          <button onClick={onClose} className="text-fg-mute hover:text-fg p-0.5">
+            <X size={12} />
+          </button>
+        </div>
       </div>
     )
   }

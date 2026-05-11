@@ -201,3 +201,16 @@ export function _getEntrySecret(id: string): VaultEntry | undefined {
   if (!dek || !cache) return undefined
   return cache.entries.find((e) => e.id === id)
 }
+
+/** バックアップ用: 解錠中の全エントリ (平文 value 含む) を取得 */
+export function _exportAllEntries(): VaultEntry[] {
+  if (!dek || !cache) throw new Error('Vault locked')
+  return cache.entries.map((e) => ({ ...e }))
+}
+
+/** バックアップ復元用: 既存エントリを置き換え、ディスクへ保存 */
+export function _replaceAllEntries(entries: VaultEntry[]): void {
+  if (!dek || !cache) throw new Error('Vault locked')
+  cache.entries = entries.map((e) => ({ ...e }))
+  persistContent()
+}

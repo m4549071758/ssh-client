@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowUp, Download, ExternalLink, FileText, Folder, FolderPlus, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowUp, Download, ExternalLink, Eye, EyeOff, FileText, Folder, FolderPlus, RefreshCw, Trash2, Upload } from 'lucide-react'
 import { api, type SftpEntry, type AppSettings } from '../ipc'
 import { Button, Input, cn } from './ui'
 import { EditorModal } from './EditorModal'
@@ -11,6 +11,20 @@ export function SftpPane({ handle, theme }: { handle: string; theme?: 'vs' | 'vs
   const [entries, setEntries] = useState<SftpEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showHidden, setShowHidden] = useState<boolean>(() => {
+    try { return localStorage.getItem('ssh-client:sftp:showHidden') === '1' } catch { return false }
+  })
+
+  const visibleEntries = useMemo(
+    () => (showHidden ? entries : entries.filter((e) => !e.name.startsWith('.'))),
+    [entries, showHidden]
+  )
+
+  function toggleHidden(): void {
+    const next = !showHidden
+    setShowHidden(next)
+    try { localStorage.setItem('ssh-client:sftp:showHidden', next ? '1' : '0') } catch { /* ignore */ }
+  }
   const [editing, setEditing] = useState<{ path: string; contents: string } | null>(null)
   const [dragOver, setDragOver] = useState(false)
 
@@ -483,6 +497,9 @@ export function SftpPane({ handle, theme }: { handle: string; theme?: 'vs' | 'vs
         <Button variant="ghost" onClick={makeDir} title="新規フォルダ">
           <FolderPlus size={14} />
         </Button>
+        <Button variant="ghost" onClick={toggleHidden} title={showHidden ? '隠しファイルを非表示' : '隠しファイルを表示'}>
+          {showHidden ? <Eye size={14} /> : <EyeOff size={14} />}
+        </Button>
         <Button variant="ghost" onClick={upload} title="アップロード">
           <Upload size={14} />
         </Button>
@@ -505,7 +522,7 @@ export function SftpPane({ handle, theme }: { handle: string; theme?: 'vs' | 'vs
             </tr>
           </thead>
           <tbody>
-            {entries.map((e) => {
+            {visibleEntries.map((e) => {
               const isSelected = selectedNames.has(e.name)
               return (
                 <tr
