@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { SessionProfile, VaultEntry, VaultEntryPublic, VaultStatus, AppSettings, SftpEntry } from '../shared/types'
+import type { SessionProfile, VaultEntry, VaultEntryPublic, VaultStatus, AppSettings, SftpEntry, KnownHostEntry, HostKeyPromptInfo, HostKeyDecision } from '../shared/types'
 
 export interface UploadItem {
   localPath: string
@@ -86,7 +86,25 @@ const api = {
       const listener = (_: unknown, msg: string) => cb(msg)
       ipcRenderer.on(ch, listener)
       return () => ipcRenderer.removeListener(ch, listener)
-    }
+    },
+    onHostKeyPrompt: (handle: string, cb: (info: HostKeyPromptInfo) => void) => {
+      const listener = (_e: unknown, info: HostKeyPromptInfo) => cb(info)
+      ipcRenderer.on(`ssh:hostKeyPrompt:${handle}`, listener)
+      return () => ipcRenderer.removeListener(`ssh:hostKeyPrompt:${handle}`, listener)
+    },
+    onReconnecting: (handle: string, cb: (info: { attempt: number; delayMs: number }) => void) => {
+      const ch = `ssh:reconnecting:${handle}`
+      const listener = (_: unknown, info: { attempt: number; delayMs: number }) => cb(info)
+      ipcRenderer.on(ch, listener)
+      return () => ipcRenderer.removeListener(ch, listener)
+    },
+    hostKeyResponse: (handle: string, decision: HostKeyDecision) =>
+      ipcRenderer.invoke('ssh:hostKeyResponse', handle, decision) as Promise<void>
+  },
+  knownHosts: {
+    list: () => ipcRenderer.invoke('knownHosts:list') as Promise<KnownHostEntry[]>,
+    remove: (host: string) => ipcRenderer.invoke('knownHosts:remove', host) as Promise<void>,
+    clear: () => ipcRenderer.invoke('knownHosts:clear') as Promise<void>
   },
   sftp: {
     list: (handle: string, path: string) =>

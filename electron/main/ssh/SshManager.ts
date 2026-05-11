@@ -2,8 +2,21 @@ import { Client, type ClientChannel, type SFTPWrapper, type ConnectConfig } from
 import { EventEmitter } from 'node:events'
 import { readFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import type { SessionProfile } from '../../shared/types'
+import type { SessionProfile, HostKeyDecision, HostKeyPromptInfo } from '../../shared/types'
 import { _getEntrySecret } from '../store/vault'
+import * as KnownHosts from '../store/knownHosts'
+import * as Settings from '../store/settings'
+
+/** ホスト鍵プロンプトの応答を待機するコールバック */
+const pendingHostKeyPrompts = new Map<string, (decision: HostKeyDecision) => void>()
+
+export function resolveHostKeyPrompt(handle: string, decision: HostKeyDecision): void {
+  const resolve = pendingHostKeyPrompts.get(handle)
+  if (resolve) {
+    pendingHostKeyPrompts.delete(handle)
+    resolve(decision)
+  }
+}
 
 export interface SshAuthOverride {
   password?: string
@@ -22,17 +35,88 @@ interface ActiveSession {
   ready: boolean
   /** C-2: close イベントの二重 fire を防ぐフラグ */
   closed: boolean
+  /** A5: 再接続制御フィールド */
+  reconnecting: boolean
+  reconnectAttempt: number
+  reconnectTimer: ReturnType<typeof setTimeout> | null
+  intentionalClose: boolean
+  lastConnectOptions: OpenOptions
+  lastProfile: SessionProfile
 }
+
+const RECONNECT_DELAYS = [2000, 5000, 10000, 20000, 30000]
 
 const sessions = new Map<string, ActiveSession>()
 
-function buildConnectConfig(profile: SessionProfile, override?: SshAuthOverride): ConnectConfig {
+function buildConnectConfig(
+  profile: SessionProfile,
+  handle: string,
+  events: EventEmitter,
+  override?: SshAuthOverride
+): ConnectConfig {
+  const settings = Settings.getSettings()
+  const host = `${profile.host}:${profile.port || 22}`
   const cfg: ConnectConfig = {
     host: profile.host,
     port: profile.port || 22,
     username: profile.username,
-    keepaliveInterval: 20000,
-    readyTimeout: 25000
+    readyTimeout: 25000,
+    hostVerifier: (keyBuffer: Buffer, callback: (valid: boolean) => void) => {
+      const fingerprint = KnownHosts.computeFingerprint(keyBuffer)
+      const existing = KnownHosts.find(host)
+
+      if (existing) {
+        if (existing.fingerprint === fingerprint) {
+          // 一致: lastSeen を更新して続行
+          KnownHosts.upsert(host, existing.keyType, fingerprint)
+          callback(true)
+          return
+        }
+        // 不一致: 警告ダイアログ
+        const info: HostKeyPromptInfo = {
+          host: profile.host,
+          port: profile.port || 22,
+          keyType: 'unknown',
+          fingerprint,
+          previousFingerprint: existing.fingerprint
+        }
+        pendingHostKeyPrompts.set(handle, (decision) => {
+          if (decision === 'replace') {
+            KnownHosts.upsert(host, 'unknown', fingerprint)
+            callback(true)
+          } else {
+            callback(false)
+          }
+        })
+        events.emit('hostKeyPrompt', info)
+        return
+      }
+
+      // 未登録: TOFU
+      const info: HostKeyPromptInfo = {
+        host: profile.host,
+        port: profile.port || 22,
+        keyType: 'unknown',
+        fingerprint
+      }
+      pendingHostKeyPrompts.set(handle, (decision) => {
+        if (decision === 'accept') {
+          KnownHosts.upsert(host, 'unknown', fingerprint)
+          callback(true)
+        } else {
+          callback(false)
+        }
+      })
+      events.emit('hostKeyPrompt', info)
+    }
+  }
+
+  // A5: Keep-Alive 設定 (プロファイル優先、グローバルフォールバック)
+  const interval = profile.keepaliveInterval ?? settings.keepaliveInterval
+  const countMax = profile.keepaliveCountMax ?? settings.keepaliveCountMax
+  if (interval > 0) {
+    cfg.keepaliveInterval = interval
+    cfg.keepaliveCountMax = countMax
   }
 
   if (profile.authType === 'password') {
@@ -82,11 +166,127 @@ export interface OpenOptions {
   override?: SshAuthOverride
 }
 
+/** A5: 再接続スケジュール */
+function scheduleReconnect(handle: string): void {
+  const session = sessions.get(handle)
+  if (!session) return
+
+  const settings = Settings.getSettings()
+  const profile = session.lastProfile
+  const shouldReconnect = profile.autoReconnect ?? settings.autoReconnect
+  const maxRetries = profile.autoReconnectMaxRetries ?? settings.autoReconnectMaxRetries
+
+  if (!shouldReconnect || session.reconnectAttempt >= maxRetries) {
+    // 再接続しない or 上限超え: 通常 close 処理
+    session.reconnecting = false
+    sessions.delete(handle)
+    session.events.emit('close')
+    return
+  }
+
+  const attempt = session.reconnectAttempt
+  const delayMs = RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)]
+  session.reconnecting = true
+  session.reconnectAttempt = attempt + 1
+
+  session.events.emit('reconnecting', { attempt: attempt + 1, delayMs })
+
+  session.reconnectTimer = setTimeout(() => {
+    session.reconnectTimer = null
+    attemptReconnect(handle)
+  }, delayMs)
+}
+
+/** A5: 再接続試行 */
+function attemptReconnect(handle: string): void {
+  const session = sessions.get(handle)
+  if (!session) return
+
+  // 古い client をクリーンアップ
+  try { session.shell?.destroy() } catch { /* ignore */ }
+  // A5: 再接続時は SFTP をリセット
+  session.sftp = undefined
+  session.sftpPending = null
+
+  const newClient = new Client()
+  session.client = newClient
+  session.shell = undefined
+  session.ready = false
+  session.closed = false
+
+  const profile = session.lastProfile
+  const opts = session.lastConnectOptions
+
+  newClient.on('ready', () => {
+    session.ready = true
+    newClient.shell({ term: 'xterm-256color', cols: opts.cols || 80, rows: opts.rows || 24 }, (err, channel) => {
+      if (err) {
+        // shell 取得失敗: 再度リトライ
+        session.reconnecting = false
+        newClient.end()
+        return
+      }
+      session.shell = channel
+      session.reconnecting = false
+      session.reconnectAttempt = 0
+      session.events.emit('ready')
+      channel.on('data', (chunk: Buffer) => session.events.emit('data', chunk))
+      channel.stderr.on('data', (chunk: Buffer) => session.events.emit('data', chunk))
+      channel.on('close', () => {
+        if (!session.intentionalClose && !session.closed) {
+          session.closed = true
+          scheduleReconnect(handle)
+        }
+      })
+    })
+  })
+
+  newClient.on('error', (err) => {
+    if (!session.intentionalClose) {
+      session.events.emit('error', err.message)
+      // エラー後の close イベントで scheduleReconnect が走るので ここでは何もしない
+    }
+  })
+
+  newClient.on('close', () => {
+    if (session.closed) return
+    session.closed = true
+    if (session.intentionalClose) {
+      sessions.delete(handle)
+      session.events.emit('close')
+    } else {
+      scheduleReconnect(handle)
+    }
+  })
+
+  try {
+    const cfg = buildConnectConfig(profile, handle, session.events, opts.override)
+    newClient.connect(cfg)
+  } catch (e) {
+    session.events.emit('error', (e as Error).message)
+    scheduleReconnect(handle)
+  }
+}
+
 export function open(profile: SessionProfile, opts: OpenOptions = {}): { handle: string; events: EventEmitter } {
   const handle = randomUUID()
   const events = new EventEmitter()
   const client = new Client()
-  const session: ActiveSession = { id: handle, sessionId: profile.id, client, events, ready: false, sftpPending: null, closed: false }
+  const session: ActiveSession = {
+    id: handle,
+    sessionId: profile.id,
+    client,
+    events,
+    ready: false,
+    sftpPending: null,
+    closed: false,
+    reconnecting: false,
+    reconnectAttempt: 0,
+    reconnectTimer: null,
+    intentionalClose: false,
+    lastConnectOptions: opts,
+    lastProfile: profile
+  }
   sessions.set(handle, session)
 
   client.on('ready', () => {
@@ -101,21 +301,36 @@ export function open(profile: SessionProfile, opts: OpenOptions = {}): { handle:
       events.emit('ready')
       channel.on('data', (chunk: Buffer) => events.emit('data', chunk))
       channel.stderr.on('data', (chunk: Buffer) => events.emit('data', chunk))
-      channel.on('close', () => events.emit('close'))
+      channel.on('close', () => {
+        // shell チャンネルが閉じた場合: intentional でなければ再接続
+        if (!session.intentionalClose && !session.closed) {
+          session.closed = true
+          scheduleReconnect(handle)
+        }
+      })
     })
   })
 
-  client.on('error', (err) => events.emit('error', err.message))
+  client.on('error', (err) => {
+    if (!session.intentionalClose) {
+      events.emit('error', err.message)
+    }
+  })
+
   client.on('close', () => {
-    // C-2: closed フラグで二重 fire を防ぐ。削除・イベント発火はここで一元管理。
+    // C-2: closed フラグで二重 fire を防ぐ
     if (session.closed) return
     session.closed = true
-    sessions.delete(handle)
-    events.emit('close')
+    if (session.intentionalClose) {
+      sessions.delete(handle)
+      events.emit('close')
+    } else {
+      scheduleReconnect(handle)
+    }
   })
 
   try {
-    const cfg = buildConnectConfig(profile, opts.override)
+    const cfg = buildConnectConfig(profile, handle, events, opts.override)
     client.connect(cfg)
   } catch (e) {
     sessions.delete(handle)
@@ -144,6 +359,13 @@ export function resize(handle: string, cols: number, rows: number): void {
 export function close(handle: string): void {
   const s = sessions.get(handle)
   if (!s) return
+  // A5: 明示的切断フラグを立てる
+  s.intentionalClose = true
+  // タイマーが有れば中止
+  if (s.reconnectTimer) {
+    clearTimeout(s.reconnectTimer)
+    s.reconnectTimer = null
+  }
   // m-6: shell.destroy() で即時破棄してから client.end()
   try {
     s.shell?.destroy()

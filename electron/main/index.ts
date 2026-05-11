@@ -8,9 +8,10 @@ import * as Vault from './store/vault'
 import * as Settings from './store/settings'
 import * as Ssh from './ssh/SshManager'
 import * as Sftp from './ssh/SftpManager'
+import * as KnownHosts from './store/knownHosts'
 import { isHelloAvailable, getBiometricLabel } from './auth'
 
-import type { SessionProfile, VaultEntry } from '../shared/types'
+import type { SessionProfile, VaultEntry, HostKeyDecision } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -127,8 +128,13 @@ function registerIpc(): void {
     events.on('data', (chunk: Buffer) => wc.send(`ssh:data:${handle}`, chunk))
     events.on('close', () => wc.send(`ssh:close:${handle}`))
     events.on('error', (msg: string) => wc.send(`ssh:error:${handle}`, msg))
+    events.on('hostKeyPrompt', (info) => wc.send(`ssh:hostKeyPrompt:${handle}`, info))
+    events.on('reconnecting', (info: { attempt: number; delayMs: number }) => wc.send(`ssh:reconnecting:${handle}`, info))
     return handle
   })
+  ipcMain.handle('ssh:hostKeyResponse', (_e, handle: string, decision: HostKeyDecision) =>
+    Ssh.resolveHostKeyPrompt(handle, decision)
+  )
   ipcMain.handle('ssh:write', (_e, handle: string, data: string) => Ssh.write(handle, data))
   ipcMain.handle('ssh:resize', (_e, handle: string, cols: number, rows: number) => Ssh.resize(handle, cols, rows))
   ipcMain.handle('ssh:close', (_e, handle: string) => {
@@ -257,6 +263,11 @@ function registerIpc(): void {
 
   ipcMain.handle('hello:available', () => isHelloAvailable())
   ipcMain.handle('hello:label', () => getBiometricLabel())
+
+  // known_hosts
+  ipcMain.handle('knownHosts:list', () => KnownHosts.list())
+  ipcMain.handle('knownHosts:remove', (_e, host: string) => KnownHosts.remove(host))
+  ipcMain.handle('knownHosts:clear', () => KnownHosts.clear())
 }
 
 app.whenReady().then(() => {

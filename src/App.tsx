@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels'
 import { useApp } from './stores/app'
 import { api } from './ipc'
+import { DEFAULT_SETTINGS } from './ipc'
 import type { SessionProfile } from './ipc'
 import { cn } from './components/ui'
 import { Sidebar } from './components/Sidebar'
@@ -12,6 +13,8 @@ import { VaultDialog } from './components/VaultDialog'
 import { SettingsDialog } from './components/SettingsDialog'
 import { SessionEditor } from './components/SessionEditor'
 import { AuthPrompt } from './components/AuthPrompt'
+import { HostKeyPrompt } from './components/HostKeyPrompt'
+import type { HostKeyPromptInfo } from './ipc'
 
 export default function App() {
   const {
@@ -31,6 +34,12 @@ export default function App() {
   const [authPrompt, setAuthPrompt] = useState<{
     session: SessionProfile
     type: 'password' | 'passphrase'
+  } | null>(null)
+
+  // Host key prompt state
+  const [hostKeyPrompt, setHostKeyPrompt] = useState<{
+    handle: string
+    info: HostKeyPromptInfo
   } | null>(null)
 
   useEffect(() => {
@@ -77,18 +86,34 @@ export default function App() {
       const handle = await api.ssh.open(session.id, { cols: 80, rows: 24, password, passphrase })
       setTabHandle(tabId, handle)
 
+      const offHostKey = api.ssh.onHostKeyPrompt(handle, (info) => {
+        setHostKeyPrompt({ handle, info })
+      })
+
       const offReady = api.ssh.onReady(handle, () => {
         setTabStatus(tabId, 'ready')
-        offReady()
+        // offReady は解除せず: 再接続時に再度 ready が発火するため維持
+      })
+      // A5: 再接続中ステータス
+      const offReconnecting = api.ssh.onReconnecting(handle, () => {
+        setTabStatus(tabId, 'reconnecting')
       })
       // M-4: onError / onClose のリスナーは close 時に解除してリークを防ぐ
       const offErr = api.ssh.onError(handle, (msg) => {
-        setTabStatus(tabId, 'error', msg)
+        // 再接続中はエラーを error ステータスに上書きしない
+        const currentTab = useApp.getState().tabs.find((t) => t.id === tabId)
+        if (currentTab?.status !== 'reconnecting') {
+          setTabStatus(tabId, 'error', msg)
+        }
+        offHostKey()
       })
       const offClose = api.ssh.onClose(handle, () => {
         setTabStatus(tabId, 'closed')
+        offReady()
+        offReconnecting()
         offErr()
         offClose()
+        offHostKey()
       })
     } catch (e) {
       setTabStatus(tabId, 'error', (e as Error).message)
@@ -144,15 +169,7 @@ export default function App() {
     }
   }
 
-  const defaultSettings = settings ?? {
-    fontFamily: "'Cascadia Code', 'Yu Gothic Mono', 'MS Gothic', monospace",
-    fontSize: 14,
-    lineHeight: 1.2,
-    theme: 'dark' as const,
-    copyOnSelect: true,
-    bracketedPaste: true,
-    autoLockMinutes: 15
-  }
+  const defaultSettings = settings ?? DEFAULT_SETTINGS
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg text-fg">
@@ -198,7 +215,7 @@ export default function App() {
                 エラー: {activeTab.errorMessage}
               </div>
             )}
-            {activeTab.handle && activeTab.status === 'ready' ? (
+            {activeTab.handle && (activeTab.status === 'ready' || activeTab.status === 'reconnecting') ? (
               <PanelGroup direction="horizontal" autoSaveId="ssh-client:terminal-sftp" className="flex-1">
                 <Panel defaultSize={60} minSize={20}>
                   <TerminalPane
@@ -220,6 +237,7 @@ export default function App() {
                 {activeTab.status === 'connecting' && '接続中…'}
                 {activeTab.status === 'closed' && '接続が閉じられました'}
                 {activeTab.status === 'error' && 'エラーが発生しました'}
+                {activeTab.status === 'reconnecting' && '再接続中…'}
               </div>
             )}
           </div>
@@ -263,6 +281,17 @@ export default function App() {
         label={authPrompt?.type === 'password' ? 'パスワード' : 'パスフレーズ (空欄でスキップ)'}
         onSubmit={handleAuthSubmit}
         onCancel={handleAuthCancel}
+      />
+
+      <HostKeyPrompt
+        open={!!hostKeyPrompt}
+        info={hostKeyPrompt?.info ?? null}
+        onDecision={(decision) => {
+          if (hostKeyPrompt) {
+            api.ssh.hostKeyResponse(hostKeyPrompt.handle, decision)
+            setHostKeyPrompt(null)
+          }
+        }}
       />
       </div>
     </div>

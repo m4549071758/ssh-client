@@ -31,9 +31,11 @@ export function TabBar({
                 ? 'bg-emerald-400'
                 : t.status === 'connecting'
                   ? 'bg-amber-400 animate-pulse'
-                  : t.status === 'error'
-                    ? 'bg-rose-400'
-                    : 'bg-zinc-500'
+                  : t.status === 'reconnecting'
+                    ? 'bg-orange-400 animate-pulse'
+                    : t.status === 'error'
+                      ? 'bg-rose-400'
+                      : 'bg-zinc-500'
             )}
           />
           <span className="max-w-[180px] truncate">{t.name}</span>

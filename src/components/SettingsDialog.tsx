@@ -1,7 +1,8 @@
 import { Modal } from './Modal'
 import { Button, Field, Input } from './ui'
 import { useEffect, useState } from 'react'
-import type { AppSettings } from '../ipc'
+import type { AppSettings, KnownHostEntry } from '../ipc'
+import { api } from '../ipc'
 
 const presetFonts = [
   "'Cascadia Code', 'Yu Gothic Mono', 'MS Gothic', monospace",
@@ -26,8 +27,80 @@ export function SettingsDialog({
   const [draft, setDraft] = useState(settings)
   useEffect(() => setDraft(settings), [settings, open])
 
+  const [activeTab, setActiveTab] = useState<'general' | 'hostkeys'>('general')
+  const [knownHosts, setKnownHosts] = useState<KnownHostEntry[]>([])
+
+  useEffect(() => {
+    if (open && activeTab === 'hostkeys') {
+      api.knownHosts.list().then(setKnownHosts).catch(() => undefined)
+    }
+  }, [open, activeTab])
+
+  async function handleRemoveHost(host: string) {
+    await api.knownHosts.remove(host)
+    setKnownHosts((prev) => prev.filter((e) => e.host !== host))
+  }
+
+  async function handleClearHosts() {
+    await api.knownHosts.clear()
+    setKnownHosts([])
+  }
+
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title="設定">
+    <Modal open={open} onOpenChange={onOpenChange} title="設定" width="max-w-2xl">
+      {/* タブ */}
+      <div className="mb-4 flex gap-1 border-b border-border">
+        <button
+          className={`px-3 py-1.5 text-sm transition-colors ${activeTab === 'general' ? 'border-b-2 border-accent text-accent' : 'text-fg-mute hover:text-fg'}`}
+          onClick={() => setActiveTab('general')}
+        >
+          一般
+        </button>
+        <button
+          className={`px-3 py-1.5 text-sm transition-colors ${activeTab === 'hostkeys' ? 'border-b-2 border-accent text-accent' : 'text-fg-mute hover:text-fg'}`}
+          onClick={() => setActiveTab('hostkeys')}
+        >
+          ホスト鍵
+        </button>
+      </div>
+
+      {activeTab === 'hostkeys' && (
+        <div>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm text-fg-mute">既知のホスト鍵一覧 ({knownHosts.length} 件)</p>
+            <Button variant="danger" onClick={handleClearHosts} disabled={knownHosts.length === 0}>
+              全削除
+            </Button>
+          </div>
+          {knownHosts.length === 0 ? (
+            <p className="py-6 text-center text-sm text-fg-mute">登録されたホスト鍵はありません</p>
+          ) : (
+            <div className="max-h-80 overflow-y-auto space-y-2">
+              {knownHosts.map((entry) => (
+                <div key={entry.host} className="rounded border border-border bg-bg-mute p-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono text-sm font-medium text-fg">{entry.host}</p>
+                      <code className="mt-0.5 block break-all text-xs text-fg-mute">{entry.fingerprint}</code>
+                      <p className="mt-1 text-xs text-fg-mute">
+                        初回: {new Date(entry.firstSeen).toLocaleString()} / 最終: {new Date(entry.lastSeen).toLocaleString()}
+                      </p>
+                    </div>
+                    <Button variant="danger" onClick={() => handleRemoveHost(entry.host)}>
+                      削除
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-4 flex justify-end">
+            <Button variant="ghost" onClick={() => onOpenChange(false)}>閉じる</Button>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'general' && <>
       <Field label="フォントファミリ">
         <select
           className="w-full rounded-md border border-border bg-bg-soft px-2.5 py-1.5 text-sm text-fg outline-none focus:border-accent"
@@ -111,6 +184,44 @@ export function SettingsDialog({
         />
       </Field>
 
+      <div className="mt-4 border-t border-border pt-4">
+        <p className="mb-3 text-sm font-medium text-fg">接続</p>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Keep-Alive 間隔 (秒, 0=無効)">
+            <Input
+              type="number"
+              value={Math.round(draft.keepaliveInterval / 1000)}
+              onChange={(e) => setDraft({ ...draft, keepaliveInterval: (parseInt(e.target.value || '30', 10)) * 1000 })}
+            />
+          </Field>
+          <Field label="Keep-Alive 許容失敗回数">
+            <Input
+              type="number"
+              value={draft.keepaliveCountMax}
+              onChange={(e) => setDraft({ ...draft, keepaliveCountMax: parseInt(e.target.value || '3', 10) })}
+            />
+          </Field>
+        </div>
+        <Field label="自動再接続">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={draft.autoReconnect}
+              onChange={(e) => setDraft({ ...draft, autoReconnect: e.target.checked })}
+            />
+            切断時に自動で再接続する
+          </label>
+        </Field>
+        <Field label="最大再試行回数">
+          <Input
+            type="number"
+            value={draft.autoReconnectMaxRetries}
+            onChange={(e) => setDraft({ ...draft, autoReconnectMaxRetries: parseInt(e.target.value || '5', 10) })}
+            disabled={!draft.autoReconnect}
+          />
+        </Field>
+      </div>
+
       <div className="mt-3 flex justify-end gap-2">
         <Button variant="ghost" onClick={() => onOpenChange(false)}>キャンセル</Button>
         <Button
@@ -122,6 +233,7 @@ export function SettingsDialog({
           保存
         </Button>
       </div>
+      </>}
     </Modal>
   )
 }

@@ -46,6 +46,22 @@ export function updateSettings(patch: unknown): AppSettings {
     if (typeof p['autoLockMinutes'] !== 'number' || p['autoLockMinutes'] < 0 || p['autoLockMinutes'] > 1440) throw new Error('Invalid autoLockMinutes (0-1440)')
     safePatch.autoLockMinutes = p['autoLockMinutes']
   }
+  if ('keepaliveInterval' in p) {
+    if (typeof p['keepaliveInterval'] !== 'number' || p['keepaliveInterval'] < 0 || p['keepaliveInterval'] > 300000) throw new Error('Invalid keepaliveInterval (0-300000)')
+    safePatch.keepaliveInterval = p['keepaliveInterval']
+  }
+  if ('keepaliveCountMax' in p) {
+    if (typeof p['keepaliveCountMax'] !== 'number' || p['keepaliveCountMax'] < 1 || p['keepaliveCountMax'] > 20) throw new Error('Invalid keepaliveCountMax (1-20)')
+    safePatch.keepaliveCountMax = p['keepaliveCountMax']
+  }
+  if ('autoReconnect' in p) {
+    if (typeof p['autoReconnect'] !== 'boolean') throw new Error('Invalid autoReconnect')
+    safePatch.autoReconnect = p['autoReconnect']
+  }
+  if ('autoReconnectMaxRetries' in p) {
+    if (typeof p['autoReconnectMaxRetries'] !== 'number' || p['autoReconnectMaxRetries'] < 0 || p['autoReconnectMaxRetries'] > 20) throw new Error('Invalid autoReconnectMaxRetries (0-20)')
+    safePatch.autoReconnectMaxRetries = p['autoReconnectMaxRetries']
+  }
 
   for (const [k, v] of Object.entries(safePatch)) {
     if (v !== undefined) (store as unknown as { set: (k: string, v: unknown) => void }).set(k, v)

@@ -107,6 +107,10 @@ export function TerminalPane({ handle, settings, onClose }: Props) {
     const offErr = api.ssh.onError(handle, (msg) => {
       term.write(`\r\n[error] ${msg}\r\n`)
     })
+    // A5: 再接続中の通知をターミナルに表示、再接続成功時はバッファ維持のまま継続
+    const offReconnecting = api.ssh.onReconnecting(handle, ({ attempt, delayMs }) => {
+      term.write(`\r\n[··· 再接続中 (試行 ${attempt}, ${Math.round(delayMs / 1000)}秒後) ···]\r\n`)
+    })
 
     term.onData((data) => api.ssh.write(handle, data))
 
@@ -135,6 +139,7 @@ export function TerminalPane({ handle, settings, onClose }: Props) {
       try { offData() } catch { /* ignore */ }
       try { offClose() } catch { /* ignore */ }
       try { offErr() } catch { /* ignore */ }
+      try { offReconnecting() } catch { /* ignore */ }
       // Defer dispose to next tick so any pending resize/scroll callbacks complete first
       setTimeout(() => {
         try { term.dispose() } catch { /* ignore */ }

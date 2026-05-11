@@ -20,6 +20,13 @@ export function SessionEditor({ open, initial, vaultUnlocked, vaultEntries, onCl
   const [authType, setAuthType] = useState<SessionProfile['authType']>('password')
   const [credentialId, setCredentialId] = useState<string>('')
   const [privateKeyPath, setPrivateKeyPath] = useState<string>('')
+  // A5: セッション単位の接続設定
+  const [useGlobalKeepalive, setUseGlobalKeepalive] = useState(true)
+  const [keepaliveInterval, setKeepaliveInterval] = useState(30)
+  const [keepaliveCountMax, setKeepaliveCountMax] = useState(3)
+  const [useGlobalReconnect, setUseGlobalReconnect] = useState(true)
+  const [autoReconnect, setAutoReconnect] = useState(true)
+  const [autoReconnectMaxRetries, setAutoReconnectMaxRetries] = useState(5)
 
   useEffect(() => {
     if (!open) return
@@ -30,6 +37,12 @@ export function SessionEditor({ open, initial, vaultUnlocked, vaultEntries, onCl
     setAuthType(initial?.authType ?? 'password')
     setCredentialId(initial?.credentialId ?? '')
     setPrivateKeyPath(initial?.privateKeyPath ?? '')
+    setUseGlobalKeepalive(initial?.keepaliveInterval === undefined)
+    setKeepaliveInterval(initial?.keepaliveInterval !== undefined ? Math.round(initial.keepaliveInterval / 1000) : 30)
+    setKeepaliveCountMax(initial?.keepaliveCountMax ?? 3)
+    setUseGlobalReconnect(initial?.autoReconnect === undefined)
+    setAutoReconnect(initial?.autoReconnect ?? true)
+    setAutoReconnectMaxRetries(initial?.autoReconnectMaxRetries ?? 5)
   }, [open, initial])
 
   async function pickKey() {
@@ -46,7 +59,11 @@ export function SessionEditor({ open, initial, vaultUnlocked, vaultEntries, onCl
       username,
       authType,
       credentialId: credentialId || undefined,
-      privateKeyPath: privateKeyPath || undefined
+      privateKeyPath: privateKeyPath || undefined,
+      keepaliveInterval: useGlobalKeepalive ? undefined : keepaliveInterval * 1000,
+      keepaliveCountMax: useGlobalKeepalive ? undefined : keepaliveCountMax,
+      autoReconnect: useGlobalReconnect ? undefined : autoReconnect,
+      autoReconnectMaxRetries: useGlobalReconnect ? undefined : autoReconnectMaxRetries
     })
     onSaved(saved)
     onClose()
@@ -115,6 +132,65 @@ export function SessionEditor({ open, initial, vaultUnlocked, vaultEntries, onCl
           </select>
         )}
       </Field>
+      {/* A5: 詳細設定 */}
+      <div className="mt-4 border-t border-border pt-4">
+        <p className="mb-3 text-sm font-medium text-fg">詳細設定 (接続)</p>
+        <label className="mb-3 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={useGlobalKeepalive}
+            onChange={(e) => setUseGlobalKeepalive(e.target.checked)}
+          />
+          Keep-Alive はグローバル設定を使用する
+        </label>
+        {!useGlobalKeepalive && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Keep-Alive 間隔 (秒, 0=無効)">
+              <Input
+                type="number"
+                value={keepaliveInterval}
+                onChange={(e) => setKeepaliveInterval(parseInt(e.target.value || '30', 10))}
+              />
+            </Field>
+            <Field label="Keep-Alive 許容失敗回数">
+              <Input
+                type="number"
+                value={keepaliveCountMax}
+                onChange={(e) => setKeepaliveCountMax(parseInt(e.target.value || '3', 10))}
+              />
+            </Field>
+          </div>
+        )}
+        <label className="mt-2 mb-3 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={useGlobalReconnect}
+            onChange={(e) => setUseGlobalReconnect(e.target.checked)}
+          />
+          自動再接続はグローバル設定を使用する
+        </label>
+        {!useGlobalReconnect && (
+          <>
+            <label className="mb-2 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={autoReconnect}
+                onChange={(e) => setAutoReconnect(e.target.checked)}
+              />
+              切断時に自動で再接続する
+            </label>
+            <Field label="最大再試行回数">
+              <Input
+                type="number"
+                value={autoReconnectMaxRetries}
+                onChange={(e) => setAutoReconnectMaxRetries(parseInt(e.target.value || '5', 10))}
+                disabled={!autoReconnect}
+              />
+            </Field>
+          </>
+        )}
+      </div>
+
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>
           キャンセル

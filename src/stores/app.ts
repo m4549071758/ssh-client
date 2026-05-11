@@ -7,7 +7,7 @@ export interface Tab {
   sessionId: string
   name: string
   handle?: string
-  status: 'connecting' | 'ready' | 'error' | 'closed'
+  status: 'connecting' | 'ready' | 'error' | 'closed' | 'reconnecting'
   errorMessage?: string
 }
 

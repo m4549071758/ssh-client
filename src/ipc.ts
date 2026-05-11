@@ -8,4 +8,5 @@ declare global {
 
 // n-2: Window インターフェースに api を宣言済みなので window.api で型安全にアクセス
 export const api = window.api
-export type { SessionProfile, VaultEntry, VaultEntryPublic, VaultStatus, AppSettings, SftpEntry } from '../electron/shared/types'
+export type { SessionProfile, VaultEntry, VaultEntryPublic, VaultStatus, AppSettings, SftpEntry, KnownHostEntry, HostKeyPromptInfo, HostKeyDecision } from '../electron/shared/types'
+export { DEFAULT_SETTINGS } from '../electron/shared/types'
