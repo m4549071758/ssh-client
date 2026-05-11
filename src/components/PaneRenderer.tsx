@@ -3,6 +3,7 @@ import { SplitSquareHorizontal, SplitSquareVertical, X } from 'lucide-react'
 import { cn } from './ui'
 import { TerminalPane } from './TerminalPane'
 import { SftpPane } from './SftpPane'
+import { ResourceStatusBar } from './ResourceStatusBar'
 import type { PaneNode, LeafPane } from '../stores/app'
 import type { AppSettings } from '../ipc'
 
@@ -163,6 +164,11 @@ export function PaneRenderer({ node, tabId, activePaneId, settings, onSplit, onC
           </div>
         )}
       </div>
+
+      {/* Resource status bar (E1) */}
+      {leaf.handle && (leaf.status === 'ready' || leaf.status === 'reconnecting') && (
+        <ResourceStatusBar handle={leaf.handle} />
+      )}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 {
   "name": "ssh-client",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Modern cross-platform SSH client with integrated SFTP, credential vault, and biometric unlock",
   "main": "out/main/index.js",
   "author": "m4549071758",

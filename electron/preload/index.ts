@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import type { SessionProfile, VaultEntry, VaultEntryPublic, VaultStatus, AppSettings, SftpEntry, KnownHostEntry, HostKeyPromptInfo, HostKeyDecision, TransferProgressEvent, TransferCompleteEvent } from '../shared/types'
+import type { SessionProfile, VaultEntry, VaultEntryPublic, VaultStatus, AppSettings, SftpEntry, KnownHostEntry, HostKeyPromptInfo, HostKeyDecision, TransferProgressEvent, TransferCompleteEvent, ResourceSample } from '../shared/types'
 
 export interface KeygenOptions {
   algorithm: 'ed25519' | 'rsa' | 'ecdsa'
@@ -219,6 +219,24 @@ const api = {
       ipcRenderer.invoke('backup:export', password) as Promise<BackupSummary | null>,
     importBackup: (password: string) =>
       ipcRenderer.invoke('backup:import', password) as Promise<BackupSummary | null>
+  },
+  monitor: {
+    start: (handle: string, intervalMs: number) =>
+      ipcRenderer.invoke('monitor:start', handle, intervalMs) as Promise<string>,
+    stop: (samplingId: string) =>
+      ipcRenderer.invoke('monitor:stop', samplingId) as Promise<void>,
+    onSample: (samplingId: string, cb: (s: ResourceSample) => void) => {
+      const ch = `monitor:sample:${samplingId}`
+      const listener = (_: unknown, s: ResourceSample) => cb(s)
+      ipcRenderer.on(ch, listener)
+      return () => ipcRenderer.removeListener(ch, listener)
+    },
+    onError: (samplingId: string, cb: (msg: string) => void) => {
+      const ch = `monitor:error:${samplingId}`
+      const listener = (_: unknown, msg: string) => cb(msg)
+      ipcRenderer.on(ch, listener)
+      return () => ipcRenderer.removeListener(ch, listener)
+    }
   }
 }
 

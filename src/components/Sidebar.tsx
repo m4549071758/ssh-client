@@ -18,6 +18,8 @@ import {
 } from 'lucide-react'
 import type { SessionProfile, VaultStatus } from '../ipc'
 import { Button, cn } from './ui'
+import { ActiveSessionsList } from './ActiveSessionsList'
+import { useApp } from '../stores/app'
 
 interface Props {
   sessions: SessionProfile[]
@@ -31,6 +33,8 @@ interface Props {
   onQuickConnect: () => void
   onOpenKeygen: () => void
   onOpenBackup: () => void
+  onJumpToPane: (tabId: string, paneId: string) => void
+  onClosePane: (tabId: string, paneId: string) => void
 }
 
 interface FolderNode {
@@ -121,8 +125,12 @@ export function Sidebar({
   onOpenSettings,
   onQuickConnect,
   onOpenKeygen,
-  onOpenBackup
+  onOpenBackup,
+  onJumpToPane,
+  onClosePane
 }: Props) {
+  const tabs = useApp((s) => s.tabs)
+  const activeTabId = useApp((s) => s.activeTabId)
   const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed())
 
@@ -191,6 +199,14 @@ export function Sidebar({
           onDelete={onDeleteSession}
         />
       </div>
+
+      <ActiveSessionsList
+        tabs={tabs}
+        sessions={sessions}
+        activeTabId={activeTabId}
+        onJump={onJumpToPane}
+        onClose={onClosePane}
+      />
 
       <div className="border-t border-border p-2">
         <Button variant="ghost" className="mb-1 w-full justify-start" onClick={onOpenVault}>

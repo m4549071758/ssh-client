@@ -138,6 +138,15 @@ export interface SshOpenResult {
   handle: string
 }
 
+export interface ResourceSample {
+  timestamp: number
+  loadavg: { '1m': number; '5m': number; '15m': number } | null
+  memory: { totalBytes: number; usedBytes: number; availableBytes: number } | null
+  disk: { totalBytes: number; usedBytes: number; usedPercent: number } | null
+  uptimeSeconds: number | null
+  cpuCount: number | null
+}
+
 export interface KnownHostEntry {
   host: string
   keyType: string

@@ -11,6 +11,8 @@ export interface LeafPane {
   handle: string | null
   status: 'idle' | 'connecting' | 'ready' | 'closed' | 'error' | 'reconnecting'
   errorMessage?: string
+  /** ready になった時刻 (epoch ms) — 接続時間表示用 */
+  connectedAt?: number
 }
 
 export interface SplitPane {
@@ -43,7 +45,7 @@ export function findPane(node: PaneNode, paneId: string): LeafPane | undefined {
   return undefined
 }
 
-function collectLeaves(node: PaneNode): LeafPane[] {
+export function collectLeaves(node: PaneNode): LeafPane[] {
   if (node.kind === 'leaf') return [node]
   return node.children.flatMap(collectLeaves)
 }
@@ -185,7 +187,20 @@ export const useApp = create<AppState>((set, get) => ({
       tabs: get().tabs.map((t) =>
         t.id !== tabId
           ? t
-          : { ...t, layout: updatePane(t.layout, paneId, (l) => ({ ...l, status, errorMessage })) }
+          : {
+              ...t,
+              layout: updatePane(t.layout, paneId, (l) => ({
+                ...l,
+                status,
+                errorMessage,
+                connectedAt:
+                  status === 'ready' && !l.connectedAt
+                    ? Date.now()
+                    : status === 'closed' || status === 'error'
+                      ? undefined
+                      : l.connectedAt
+              }))
+            }
       ),
     })
   },

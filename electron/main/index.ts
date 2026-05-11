@@ -9,6 +9,7 @@ import * as Settings from './store/settings'
 import * as Ssh from './ssh/SshManager'
 import * as Sftp from './ssh/SftpManager'
 import * as Transfer from './ssh/TransferManager'
+import * as Monitor from './ssh/MonitorManager'
 import * as KnownHosts from './store/knownHosts'
 import * as Backup from './store/backup'
 import * as Keygen from './ssh/keygen'
@@ -143,6 +144,7 @@ function registerIpc(): void {
   ipcMain.handle('ssh:resize', (_e, handle: string, cols: number, rows: number) => Ssh.resize(handle, cols, rows))
   ipcMain.handle('ssh:close', (_e, handle: string) => {
     Sftp.closeAllExternalForHandle(handle)
+    Monitor.stopAllForHandle(handle)
     return Ssh.close(handle)
   })
 
@@ -343,6 +345,19 @@ function registerIpc(): void {
     if (canceled || !filePath) return null
     return Backup.exportToFile(filePath, password)
   })
+  // monitor (E1): リモートリソース定期サンプリング
+  ipcMain.handle('monitor:start', (event, handle: string, intervalMs: number) => {
+    const samplingId = Monitor.start(handle, intervalMs)
+    const wc = event.sender
+    const emitter = Monitor.getEmitter(samplingId)
+    if (emitter) {
+      emitter.on('sample', (s) => wc.send(`monitor:sample:${samplingId}`, s))
+      emitter.on('error', (msg: string) => wc.send(`monitor:error:${samplingId}`, msg))
+    }
+    return samplingId
+  })
+  ipcMain.handle('monitor:stop', (_e, samplingId: string) => Monitor.stop(samplingId))
+
   ipcMain.handle('backup:import', async (_e, password: string) => {
     const win = BrowserWindow.getFocusedWindow() ?? mainWindow!
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {

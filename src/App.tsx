@@ -283,6 +283,11 @@ export default function App() {
               onQuickConnect={() => setQuickConnectOpen(true)}
               onOpenKeygen={() => setKeygenOpen(true)}
               onOpenBackup={() => setBackupOpen(true)}
+              onJumpToPane={(tabId, paneId) => {
+                setActive(tabId)
+                setActivePane(tabId, paneId)
+              }}
+              onClosePane={(tabId, paneId) => closePane(tabId, paneId)}
             />
           </Panel>
           <PanelResizeHandle className="w-1 bg-border hover:bg-accent transition-colors" />

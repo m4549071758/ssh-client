@@ -86,8 +86,8 @@ export function TerminalPane({ handle, settings, onClose }: Props) {
   const [searchResult, setSearchResult] = useState<{ resultIndex: number; resultCount: number } | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
-  const themeKey = settings.theme
-  const activeTheme = themes[themeKey] ?? themes.dark
+  // ターミナルペインは常時ダーク固定 (仕様)
+  const activeTheme = themes.dark
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -168,16 +168,15 @@ export function TerminalPane({ handle, settings, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handle])
 
-  // settings 変更時のライブ更新 (テーマ含む)
+  // settings 変更時のライブ更新 (テーマは固定なので適用しない)
   useEffect(() => {
     const t = termRef.current
     if (!t) return
     t.options.fontFamily = settings.fontFamily
     t.options.fontSize = settings.fontSize
     t.options.lineHeight = settings.lineHeight
-    t.options.theme = activeTheme
     fitRef.current?.fit()
-  }, [settings, activeTheme])
+  }, [settings])
 
   // C6: Ctrl/Cmd+F で検索バー開閉
   useEffect(() => {
